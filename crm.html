@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoBook — CRM</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* page-scoped LAYOUT only — §C.2/C.3. CRM is a sub-app: shared icon-rail +
+     its own secondary tab nav + hash-routed views. Phase 1 scope only
+     (CRM Dashboard, Leads, Customers) — Accounts/Opportunities/Pipeline/
+     Declined Work/Inbox/Campaigns/Reports/Settings are later phases. */
+  .crm-tabs{margin-bottom:var(--s5)}
+  .crm-grid{display:grid;grid-template-columns:1fr 1.4fr;gap:var(--s4);align-items:start}
+  @media(max-width:1000px){.crm-grid{grid-template-columns:1fr}}
+  .lead-card{border:1px solid var(--rule);border-radius:var(--r-md);padding:var(--s4);margin-bottom:var(--s3)}
+  .lead-card:last-child{margin-bottom:0}
+  .lead-card .lc-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:var(--s2)}
+  .lead-card .lc-name{font-weight:700;color:var(--ink)}
+  .lead-card .lc-sub{font-size:var(--t-13);color:var(--ink-3)}
+  .lead-card .lc-meta{display:flex;flex-wrap:wrap;gap:6px;margin:var(--s2) 0}
+  .lead-card .lc-actions{display:flex;gap:var(--s2);margin-top:var(--s3)}
+  .cust-row{display:flex;justify-content:space-between;align-items:center;padding:var(--s3);border:1px solid var(--rule);border-radius:var(--r-md);margin-bottom:var(--s2);cursor:pointer;transition:border-color .15s}
+  .cust-row:hover{border-color:var(--accent-mid)}
+  .tl-event{display:flex;gap:var(--s3);padding:var(--s3) 0;border-bottom:1px solid var(--rule)}
+  .tl-event:last-child{border-bottom:none}
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <nav class="icon-rail" id="icon-rail"></nav>
+
+  <div class="main-col">
+    <header class="app-header">
+      <div>
+        <div class="greeting-title">CRM</div>
+        <div class="greeting-sub">Leads, customers, and the full relationship history.</div>
+      </div>
+      <div class="header-actions">
+        <div class="search-pill">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input type="text" id="crm-search" placeholder="Search leads, customers…">
+        </div>
+        <button class="icon-btn" title="Notifications">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+        </button>
+        <div class="avatar" id="avatar">J</div>
+      </div>
+    </header>
+
+    <div class="page-body">
+      <div class="seg crm-tabs" id="crm-tabs">
+        <button data-view="dashboard">Dashboard</button>
+        <button data-view="leads">Leads</button>
+        <button data-view="customers">Customers</button>
+      </div>
+      <div id="crm-view-body"></div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="crm-overlay">
+  <div class="drawer" id="crm-drawer"></div>
+</div>
+
+<script type="module">
+  import { db } from './lib/data.js';
+  db.init();
+  import('./modules/crm/crm-app.js').then(m => m.renderCrm());
+</script>
+</body>
+</html>

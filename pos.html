@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoBook — Point of Sale</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* page-scoped LAYOUT only — §11.14 */
+  .pos-grid{display:grid;grid-template-columns:1.3fr 1fr;gap:var(--s4)}
+  @media(max-width:1000px){.pos-grid{grid-template-columns:1fr}}
+  .pos-mode-row{display:flex;gap:var(--s2);margin-bottom:var(--s4)}
+  .pos-search-row{display:flex;gap:var(--s2);margin-bottom:var(--s4)}
+  .pos-line-row{display:grid;grid-template-columns:1fr 50px 80px 80px 28px;gap:var(--s2);padding:6px 0;font-size:var(--t-13);align-items:center}
+  .pos-line-row.head{color:var(--ink-4);font-size:var(--t-xs);text-transform:uppercase}
+  .pos-totals{display:flex;flex-direction:column;gap:4px;align-items:flex-end;margin-top:var(--s3);font-size:var(--t-13)}
+  .pos-totals .grand{font-size:var(--t-lg);font-weight:800;color:var(--ink)}
+  .tender-btn-row{display:flex;gap:var(--s2);margin-bottom:var(--s3)}
+  .tender-btn-row button{flex:1}
+  .tender-row{display:flex;justify-content:space-between;padding:4px 0;font-size:var(--t-13)}
+  .recent-sale-row{display:flex;justify-content:space-between;align-items:center;padding:var(--s2) 0;border-bottom:1px solid var(--rule);font-size:var(--t-13)}
+  .recent-sale-row:last-child{border-bottom:none}
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <nav class="icon-rail" id="icon-rail"></nav>
+
+  <div class="main-col">
+    <header class="app-header">
+      <div>
+        <div class="greeting-title">Point of Sale</div>
+        <div class="greeting-sub" id="register-status">Register status…</div>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-secondary" id="close-drawer-btn" style="display:none">Close Drawer</button>
+        <div class="avatar" id="avatar">J</div>
+      </div>
+    </header>
+
+    <div class="page-body">
+      <div id="register-gate"></div>
+
+      <div id="pos-main" style="display:none">
+        <div class="pos-grid">
+          <div class="card">
+            <div class="card-head"><div class="card-title">Ticket</div></div>
+            <div class="card-body">
+              <div class="pos-mode-row">
+                <button class="btn btn-secondary btn-sm" id="mode-ro-btn">Pay an RO/Invoice</button>
+                <button class="btn btn-secondary btn-sm" id="mode-counter-btn">Counter Sale</button>
+              </div>
+              <div id="ticket-body">
+                <div class="empty"><div class="empty-title">No ticket open</div><div class="empty-sub">Choose a mode above to start.</div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><div class="card-title">Tender</div></div>
+            <div class="card-body" id="tender-body">
+              <div class="empty-sub">Start a ticket to take payment.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:var(--s4)">
+          <div class="card-head"><div class="card-title">Recent Sales (today)</div></div>
+          <div class="card-body" id="recent-sales-body"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="pos-overlay">
+  <div class="modal" id="pos-modal" style="max-width:420px"></div>
+</div>
+
+<script type="module">
+  import { db } from './lib/data.js';
+  db.init();
+  import('./modules/pos.js').then(m => m.renderPos());
+</script>
+</body>
+</html>
