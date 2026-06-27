@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Book an Appointment — AutoBook Demo Shop</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* page-scoped LAYOUT only — public booking is a simplified, centered presentation
+     of the same component system (§11.3): no icon-rail, no context-rail. */
+  body.embed{background:transparent}
+  .booking-wrap{max-width:640px;margin:0 auto;padding:var(--s8) var(--s5) var(--s10)}
+  body.embed .booking-wrap{padding:var(--s5)}
+  .booking-header{text-align:center;margin-bottom:var(--s6)}
+  .booking-header .brand{font-size:var(--t-xl);font-weight:800;color:var(--ink);margin-bottom:var(--s1)}
+  .booking-header .sub{color:var(--ink-3)}
+  .step-panel{display:none}
+  .step-panel.active{display:block}
+  .step-title{font-size:var(--t-2xl);font-weight:800;letter-spacing:-.02em;margin-bottom:var(--s1)}
+  .step-helper{color:var(--ink-3);margin-bottom:var(--s5)}
+  .selected-summary{display:flex;flex-wrap:wrap;gap:var(--s2);margin:var(--s4) 0}
+  .duration-total{font-size:var(--t-13);color:var(--ink-3);margin-bottom:var(--s4)}
+  .wizard-foot{display:flex;justify-content:space-between;margin-top:var(--s6)}
+  .field-error{color:var(--red);font-size:var(--t-13);margin-top:4px}
+  .coupon-row{display:flex;gap:var(--s2)}
+  .coupon-row input{flex:1}
+  .coupon-msg{font-size:var(--t-13);margin-top:var(--s2)}
+  .success-icon{width:64px;height:64px;border-radius:50%;background:var(--green-lt);color:var(--green);display:grid;place-items:center;margin:0 auto var(--s5)}
+</style>
+</head>
+<body>
+<div class="booking-wrap">
+  <div class="booking-header">
+    <div class="brand">AutoBook Demo Shop</div>
+    <div class="sub">Request an appointment — the shop will confirm shortly.</div>
+  </div>
+
+  <div class="stepper" id="stepper"></div>
+
+  <div class="card"><div class="card-body">
+
+    <!-- Step 1: Choose services -->
+    <div class="step-panel" data-step="1">
+      <div class="step-title">Choose services</div>
+      <div class="step-helper">Select one or more services to include in this appointment request.</div>
+      <div class="service-pick" id="service-pick"></div>
+      <div class="duration-total" id="duration-total"></div>
+      <div class="wizard-foot">
+        <span></span>
+        <button class="btn btn-primary" id="step1-next" disabled>Next</button>
+      </div>
+    </div>
+
+    <!-- Step 2: Preferred time -->
+    <div class="step-panel" data-step="2">
+      <div class="step-title">Preferred time</div>
+      <div class="step-helper" id="step2-helper">Select one or more services to view available time slots.</div>
+      <div class="field" style="margin-bottom:var(--s4)">
+        <label class="label">Date</label>
+        <input type="date" class="input" id="date-input">
+      </div>
+      <div class="time-window-grid" id="time-windows"></div>
+      <div class="wizard-foot">
+        <button class="btn btn-secondary" data-back="1">Back</button>
+        <button class="btn btn-primary" id="step2-next" disabled>Next</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Contact & vehicle -->
+    <div class="step-panel" data-step="3">
+      <div class="step-title">Contact &amp; vehicle</div>
+      <div class="step-helper">Tell us how to reach you and what you're bringing in.</div>
+
+      <div class="field" style="margin-bottom:var(--s4)">
+        <label class="label">Coupon (optional)</label>
+        <div class="coupon-row">
+          <input type="text" class="input" id="coupon-input" placeholder="Enter code…">
+          <button class="btn btn-secondary" id="apply-coupon-btn">Apply</button>
+        </div>
+        <div class="coupon-msg" id="coupon-msg"></div>
+      </div>
+
+      <div class="grid-2" style="margin-bottom:var(--s4)">
+        <div class="field"><label class="label">First name</label><input class="input" id="f-first"><div class="field-error" id="err-first"></div></div>
+        <div class="field"><label class="label">Last name</label><input class="input" id="f-last"><div class="field-error" id="err-last"></div></div>
+        <div class="field"><label class="label">Phone</label><input class="input" id="f-phone" placeholder="(555) 555-5555"><div class="field-error" id="err-phone"></div></div>
+        <div class="field"><label class="label">Email</label><input class="input" id="f-email" type="email"><div class="field-error" id="err-email"></div></div>
+      </div>
+
+      <div class="grid-2" style="margin-bottom:var(--s4)">
+        <div class="field"><label class="label">Year</label><input class="input" id="v-year" inputmode="numeric"><div class="field-error" id="err-year"></div></div>
+        <div class="field"><label class="label">Make</label><input class="input" id="v-make"><div class="field-error" id="err-make"></div></div>
+        <div class="field"><label class="label">Model</label><input class="input" id="v-model"><div class="field-error" id="err-model"></div></div>
+        <div class="field"><label class="label">Mileage (optional)</label><input class="input" id="v-mileage" inputmode="numeric"></div>
+        <div class="field" style="grid-column:1/-1"><label class="label">VIN (optional)</label><input class="input" id="v-vin"></div>
+      </div>
+
+      <div class="field" style="margin-bottom:var(--s4)">
+        <label class="label">Visit type</label>
+        <div class="seg" id="visit-type-toggle">
+          <button class="active" data-visit="drop_off">Drop off</button>
+          <button data-visit="wait">Wait at shop</button>
+        </div>
+      </div>
+
+      <div class="field" style="margin-bottom:var(--s4)">
+        <label class="label">Notes</label>
+        <textarea class="textarea" id="f-notes" placeholder="Symptoms or concerns…"></textarea>
+      </div>
+
+      <div class="wizard-foot">
+        <button class="btn btn-secondary" data-back="2">Back</button>
+        <button class="btn btn-primary" id="submit-btn">Submit Request</button>
+      </div>
+    </div>
+
+    <!-- Step 4: Confirmation -->
+    <div class="step-panel" data-step="4" style="text-align:center">
+      <div class="success-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+      </div>
+      <div class="step-title">Request sent</div>
+      <div class="step-helper">The shop received your request and will confirm soon.</div>
+      <button class="btn btn-primary" id="book-another-btn">Book Another</button>
+    </div>
+
+  </div></div>
+</div>
+
+<script type="module">
+  import { db } from './lib/data.js';
+  db.init();
+  import('./modules/booking.js').then(m => m.renderBooking());
+</script>
+</body>
+</html>

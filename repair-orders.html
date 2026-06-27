@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoBook — Repair Orders</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* page-scoped LAYOUT only (no component re-skinning) — §11.2 */
+  .filters-row{display:flex;gap:var(--s3);flex-wrap:wrap;margin-bottom:var(--s4)}
+  .filters-row .select{width:auto;min-width:140px}
+  .filters-row .search-pill{min-width:220px}
+  .ro-detail-section{padding:var(--s4) 0;border-bottom:1px solid var(--rule)}
+  .ro-detail-section:last-child{border-bottom:none}
+  .ro-detail-section h4{font-size:var(--t-sm);font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3);margin-bottom:var(--s3)}
+  .li-row{display:grid;grid-template-columns:1fr 50px 70px 70px 80px 28px;gap:var(--s2);align-items:center;padding:6px 0;font-size:var(--t-13)}
+  .li-row.head{color:var(--ink-4);font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.04em}
+  .li-totals{display:flex;flex-direction:column;gap:4px;align-items:flex-end;margin-top:var(--s3);font-size:var(--t-13)}
+  .li-totals .grand{font-size:var(--t-lg);font-weight:800;color:var(--ink)}
+  .add-line-row{display:flex;gap:var(--s2);margin-top:var(--s3);flex-wrap:wrap}
+  .add-line-row select{flex:1;min-width:160px}
+  .dvi-row{display:flex;align-items:center;justify-content:space-between;padding:var(--s2) 0;border-bottom:1px solid var(--rule)}
+  .dvi-row:last-child{border-bottom:none}
+  .dvi-pill{display:inline-flex;gap:4px}
+  .dvi-pill button{width:22px;height:22px;border-radius:50%;border:2px solid var(--rule)}
+  .dvi-pill button.green.active{background:var(--green);border-color:var(--green)}
+  .dvi-pill button.yellow.active{background:var(--amber);border-color:var(--amber)}
+  .dvi-pill button.red.active{background:var(--red);border-color:var(--red)}
+  .status-actions{display:flex;gap:var(--s2);flex-wrap:wrap}
+  #ro-drawer{padding:0}
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <nav class="icon-rail" id="icon-rail"></nav>
+
+  <div class="main-col">
+    <header class="app-header">
+      <div>
+        <div class="greeting-title">Repair Orders</div>
+        <div class="greeting-sub">Every job from request to paid, in one list.</div>
+      </div>
+      <div class="header-actions">
+        <div class="search-pill">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input type="text" id="search-input" placeholder="Search RO, customer, vehicle…">
+        </div>
+        <button class="icon-btn" title="Notifications">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+        </button>
+        <div class="avatar" id="avatar">J</div>
+      </div>
+    </header>
+
+    <div class="page-body">
+      <div class="card">
+        <div class="card-body">
+          <div class="filters-row">
+            <select class="select" id="filter-status">
+              <option value="">All statuses</option>
+              <option value="scheduled">Scheduled</option>
+              <option value="waiting">Waiting</option>
+              <option value="in_progress">In Progress</option>
+              <option value="on_hold">On Hold</option>
+              <option value="ready">Ready</option>
+              <option value="invoiced">Invoiced</option>
+              <option value="closed">Closed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+            <select class="select" id="filter-tech">
+              <option value="">All techs</option>
+            </select>
+            <input type="date" class="input" id="filter-date" style="width:auto">
+          </div>
+          <table class="table" id="ro-table">
+            <thead>
+              <tr><th>RO</th><th>Customer</th><th>Vehicle</th><th>Status</th><th>Tech</th><th class="num">Total</th><th></th></tr>
+            </thead>
+            <tbody id="ro-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="ro-overlay">
+  <div class="drawer" id="ro-drawer"></div>
+</div>
+
+<script type="module">
+  import { db } from './lib/data.js';
+  db.init();
+  import('./modules/repair-orders.js').then(m => m.renderRepairOrders());
+</script>
+</body>
+</html>
