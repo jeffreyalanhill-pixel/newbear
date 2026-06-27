@@ -40,15 +40,28 @@ ul,ol{list-style:none} img,svg{display:block;max-width:100%}
 
 /* 3. APP SHELL (icon rail · main · context rail) --------------------------- */
 .app-shell{display:flex;min-height:100vh;background:var(--canvas)}
-.icon-rail{width:var(--rail-w);flex-shrink:0;margin:var(--s4);background:var(--rail);border:1px solid var(--rule);
-  border-radius:var(--r-panel);box-shadow:var(--shadow-card);display:flex;flex-direction:column;align-items:center;
-  padding:var(--s4) 0;gap:var(--s2);position:sticky;top:var(--s4);height:calc(100vh - var(--s8))}
-.rail-logo{width:48px;height:48px;border-radius:50%;border:2px solid var(--ink);display:grid;place-items:center;margin-bottom:var(--s4);flex-shrink:0}
-.rail-logo svg{width:24px;height:24px}
-.rail-sep{width:28px;height:1px;background:var(--rule);margin:var(--s2) 0}
-.rail-item{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;color:var(--ink-4);
-  transition:all .15s var(--ease);position:relative;flex-shrink:0}
-.rail-item svg{width:22px;height:22px}
+/* The rail reserves a fixed 76px column in the flex layout (.icon-rail); the
+   actual visual panel (.rail-inner) is absolutely positioned inside it and
+   grows wider on hover, overlaying the main content rather than pushing it —
+   so expanding to show labels never reflows the page. */
+.icon-rail{width:var(--rail-w);flex-shrink:0;margin:var(--s4);position:sticky;top:var(--s4);
+  height:calc(100vh - var(--s8));overflow:visible;z-index:50}
+.rail-inner{position:absolute;top:0;left:0;width:var(--rail-w);height:100%;background:var(--rail);
+  border:1px solid var(--rule);border-radius:var(--r-panel);box-shadow:var(--shadow-card);
+  display:flex;flex-direction:column;align-items:stretch;padding:var(--s4) var(--s2);gap:var(--s2);
+  overflow:hidden;transition:width .18s var(--ease)}
+.icon-rail:hover .rail-inner{width:226px}
+.rail-logo{width:48px;height:48px;border-radius:50%;border:2px solid var(--ink);display:flex;align-items:center;
+  margin-bottom:var(--s4);flex-shrink:0;padding:0 12px;gap:var(--s3);width:auto}
+.rail-logo svg{width:24px;height:24px;flex-shrink:0}
+.rail-logo .rail-shop-name{opacity:0;white-space:nowrap;font-weight:800;color:var(--ink);font-size:var(--t-base);transition:opacity .15s var(--ease)}
+.icon-rail:hover .rail-logo .rail-shop-name{opacity:1}
+.rail-sep{height:1px;background:var(--rule);margin:var(--s2) 12px;flex-shrink:0}
+.rail-item{height:48px;border-radius:14px;display:flex;align-items:center;gap:var(--s3);padding:0 13px;
+  color:var(--ink-4);transition:all .15s var(--ease);position:relative;flex-shrink:0;white-space:nowrap;overflow:hidden}
+.rail-item svg{width:22px;height:22px;flex-shrink:0}
+.rail-item-label{opacity:0;font-size:var(--t-base);font-weight:600;transition:opacity .15s var(--ease)}
+.icon-rail:hover .rail-item-label{opacity:1}
 .rail-item:hover{color:var(--ink-2);background:var(--canvas)}
 .rail-item.active{background:var(--accent);color:#fff;box-shadow:0 4px 12px rgba(37,99,235,.35)}
 .rail-item .rail-dot{position:absolute;top:8px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--red);border:2px solid var(--rail)}
@@ -67,9 +80,11 @@ ul,ol{list-style:none} img,svg{display:block;max-width:100%}
 .context-rail .ctx-section{margin-top:var(--s6)}
 @media (max-width:1200px){.context-rail{position:static;width:auto;height:auto;margin:0 var(--s4) var(--s6)}
   .app-shell{flex-wrap:wrap}.main-col{flex:1 1 100%;padding-right:var(--s6)}}
-@media (max-width:760px){.icon-rail{flex-direction:row;width:auto;height:auto;position:static;margin:var(--s3);
-  justify-content:flex-start;overflow-x:auto;padding:var(--s2) var(--s3)}
-  .rail-logo{margin-bottom:0;margin-right:var(--s2)}.rail-spacer{margin-top:0;margin-left:auto}.rail-sep{display:none}
+@media (max-width:760px){.icon-rail{width:auto;height:auto;position:static;margin:var(--s3)}
+  .icon-rail:hover .rail-inner{width:auto}
+  .rail-inner{position:static;flex-direction:row;width:auto;justify-content:flex-start;overflow-x:auto;padding:var(--s2) var(--s3)}
+  .rail-logo{margin-bottom:0;margin-right:var(--s2)}.rail-item-label{display:none}
+  .rail-spacer{margin-top:0;margin-left:auto}.rail-sep{display:none}
   .main-col{padding:var(--s4)}.greeting-title{font-size:var(--t-2xl)}}
 
 /* 4. HEADER PARTS (search = input style reference) ------------------------- */

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoBook — Live Monitor</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* page-scoped LAYOUT + the one sanctioned theme exception (§5.0): darker,
+     higher-contrast, larger text, simplified layout for distance reading —
+     same font family (Inter), same badge/card/icon/brand-blue language. */
+  body{background:var(--panel)}
+  .monitor-wrap{padding:var(--s6);min-height:100vh}
+  .monitor-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--s6)}
+  .monitor-title{color:#fff;font-size:var(--t-2xl);font-weight:800;display:flex;align-items:center;gap:var(--s3)}
+  .monitor-clock{color:var(--panel-txt);font-size:var(--t-xl);font-weight:700;font-variant-numeric:tabular-nums}
+  .monitor-grid{display:grid;grid-template-columns:280px 1fr;gap:var(--s5);align-items:start}
+  @media(max-width:900px){.monitor-grid{grid-template-columns:1fr}}
+  .queue-col{display:flex;flex-direction:column;gap:var(--s3)}
+  .queue-title{color:var(--panel-txt);font-size:var(--t-sm);font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:var(--s2)}
+  .queue-card{background:var(--panel-2);border:1px solid var(--panel-rule);border-radius:var(--r-md);padding:var(--s4);cursor:grab;transition:box-shadow .15s,transform .15s}
+  .queue-card:hover{transform:translateY(-1px)}
+  .queue-card.dragging{opacity:.4}
+  .queue-top{display:flex;align-items:center;gap:var(--s2);margin-bottom:var(--s2)}
+  .queue-name{font-weight:700;color:#fff;font-size:var(--t-md)}
+  .queue-sub{color:var(--panel-txt);font-size:var(--t-13)}
+  .bay-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:var(--s4)}
+  .bay-card{background:var(--panel-2);border:2px solid var(--panel-rule);border-radius:var(--r-card);padding:var(--s5);min-height:200px;transition:border-color .15s}
+  .bay-card.drag-over{border-color:var(--accent)}
+  .bay-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--s4)}
+  .bay-name{color:#fff;font-size:var(--t-xl);font-weight:800}
+  .bay-tech{color:var(--panel-txt);font-size:var(--t-13);font-weight:600}
+  .bay-job-make{width:48px;height:48px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:var(--t-lg);margin-bottom:var(--s3)}
+  .bay-job-vehicle{color:#fff;font-size:var(--t-lg);font-weight:700}
+  .bay-job-sub{color:var(--panel-txt);font-size:var(--t-base);margin-top:2px}
+  .bay-empty{color:var(--panel-txt);font-size:var(--t-base);text-align:center;padding-top:var(--s8)}
+</style>
+</head>
+<body>
+<div class="monitor-wrap">
+  <div class="monitor-top">
+    <div class="monitor-title">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="28" height="28"><path d="M5 17h14l-1.5-5a2 2 0 00-1.9-1.4H8.4A2 2 0 006.5 12L5 17zM5 17v2M19 17v2"/><circle cx="7.5" cy="17" r="1.5"/><circle cx="16.5" cy="17" r="1.5"/></svg>
+      Live Monitor
+    </div>
+    <div class="monitor-clock" id="clock"></div>
+  </div>
+
+  <div class="monitor-grid">
+    <div class="queue-col">
+      <div class="queue-title">Waiting Queue</div>
+      <div id="queue-list"></div>
+    </div>
+    <div class="bay-grid" id="bay-grid"></div>
+  </div>
+</div>
+
+<script type="module">
+  import { db } from './lib/data.js';
+  db.init();
+  import('./modules/live-monitor.js').then(m => m.renderLiveMonitor());
+</script>
+</body>
+</html>
