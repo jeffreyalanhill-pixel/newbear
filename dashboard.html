@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoBook — Dashboard</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* page-scoped LAYOUT only (no component re-skinning) — §11.1 three-column shell */
+  .app-shell{align-items:flex-start}
+  .live-flags-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:var(--s4)}
+  .sched-tmrw-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:var(--s4)}
+  @media(max-width:1000px){.live-flags-grid,.sched-tmrw-grid{grid-template-columns:1fr}}
+  .seg-toggle-row{margin-bottom:var(--s4)}
+  .gauge-wrap{display:flex;justify-content:center;padding:var(--s2) 0}
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <nav class="icon-rail" id="icon-rail"></nav>
+
+  <div class="main-col">
+    <header class="app-header">
+      <div>
+        <div class="greeting-title" id="greeting-title">Good morning</div>
+        <div class="greeting-sub">Here's how your shop is performing today.</div>
+      </div>
+      <div class="header-actions">
+        <div class="search-pill">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input type="text" placeholder="Search anything…">
+        </div>
+        <button class="icon-btn" title="Notifications">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+          <span class="badge-count" id="notif-count" style="display:none">0</span>
+        </button>
+        <div class="avatar" id="avatar">J</div>
+      </div>
+    </header>
+
+    <div class="page-body">
+      <!-- Navy KPI strip -->
+      <div class="kpi-strip" id="kpi-strip"></div>
+
+      <!-- Three white stat cards -->
+      <div class="grid-3" id="stat-cards"></div>
+
+      <!-- Live Jobs kanban + Flags -->
+      <div class="live-flags-grid">
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg>
+              Live Jobs
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="kanban" id="kanban"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h11l5 5v11H4z"/><path d="M15 4v5h5"/></svg>
+              Flags
+            </div>
+          </div>
+          <div class="card-body" id="flags-body"></div>
+        </div>
+      </div>
+
+      <!-- Today's Schedule + Tomorrow Preview -->
+      <div class="sched-tmrw-grid">
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg>
+              Today's Schedule
+            </div>
+          </div>
+          <div class="card-body" style="padding-top:var(--s3)">
+            <table class="table" id="schedule-table">
+              <thead><tr><th>Time</th><th>RO / Customer</th><th>Vehicle</th><th>Service</th><th>Bay / Tech</th></tr></thead>
+              <tbody id="schedule-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg>
+              Tomorrow Preview
+            </div>
+          </div>
+          <div class="card-body" id="tomorrow-body"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <aside class="context-rail" id="context-rail">
+    <div class="ctx-title">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/></svg>
+      Overview
+    </div>
+    <div class="seg seg-toggle-row" id="period-toggle">
+      <button class="active" data-period="today">Today</button>
+      <button data-period="week">Week</button>
+      <button data-period="month">Month</button>
+    </div>
+    <div id="overview-rows"></div>
+
+    <div class="ctx-section ctx-title" style="font-size:var(--t-md)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M2 21v-2a4 4 0 014-4h6a4 4 0 014 4v2"/><circle cx="17" cy="7" r="3"/></svg>
+      Team Pulse
+    </div>
+    <div class="grid-2" id="team-pulse"></div>
+
+    <div class="ctx-section ctx-title" style="font-size:var(--t-md)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      AI Coaching
+    </div>
+    <div id="ai-coaching"></div>
+
+    <div class="ctx-section ctx-title" style="font-size:var(--t-md)">Shop Utilization</div>
+    <div class="gauge-wrap" id="gauge-wrap"></div>
+  </aside>
+</div>
+
+<script type="module">
+  import { db } from './lib/data.js';
+  db.init();
+  import('./modules/dashboard.js').then(m => m.renderDashboard());
+</script>
+</body>
+</html>

@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoBook — Design System</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* page-scoped LAYOUT only (no component re-skinning) */
+  .ds-wrap{max-width:1100px;margin:0 auto;padding:var(--s8) var(--s6) var(--s10)}
+  .ds-h{font-size:var(--t-4xl);font-weight:900;letter-spacing:-.03em;margin-bottom:var(--s2)}
+  .ds-sub{color:var(--ink-3);margin-bottom:var(--s8);font-size:var(--t-md)}
+  .ds-sec{margin-bottom:var(--s10)}
+  .ds-sec > h2{font-size:var(--t-xl);font-weight:800;letter-spacing:-.02em;margin-bottom:var(--s4);
+    padding-bottom:var(--s2);border-bottom:1px solid var(--rule)}
+  .ds-row{display:flex;gap:var(--s3);flex-wrap:wrap;align-items:center;margin-bottom:var(--s4)}
+  .swatch{display:flex;flex-direction:column;gap:6px;font-size:var(--t-sm)}
+  .swatch i{width:84px;height:56px;border-radius:var(--r-md);border:1px solid var(--rule);display:block}
+  .swatch code{color:var(--ink-3);font-size:var(--t-xs)}
+  .type-spec{display:flex;align-items:baseline;gap:var(--s4);margin-bottom:var(--s3)}
+  .type-spec .meta{color:var(--ink-4);font-size:var(--t-sm);width:120px;flex-shrink:0}
+</style>
+</head>
+<body>
+<div class="ds-wrap">
+  <div class="ds-h">AutoBook Design System</div>
+  <div class="ds-sub">The binding visual language. Every page pulls from <code>style.css</code> — these are the components.</div>
+
+  <!-- COLOR -->
+  <section class="ds-sec">
+    <h2>Color</h2>
+    <div class="ds-row">
+      <div class="swatch"><i style="background:var(--panel)"></i>Navy panel<code>#0E1B30</code></div>
+      <div class="swatch"><i style="background:var(--accent)"></i>Brand blue<code>#2563EB</code></div>
+      <div class="swatch"><i style="background:var(--canvas)"></i>Canvas<code>#F4F6F9</code></div>
+      <div class="swatch"><i style="background:var(--card);"></i>Card<code>#FFFFFF</code></div>
+      <div class="swatch"><i style="background:var(--green)"></i>Green<code>#16A34A</code></div>
+      <div class="swatch"><i style="background:var(--amber)"></i>Amber<code>#F59E0B</code></div>
+      <div class="swatch"><i style="background:var(--red)"></i>Red<code>#EF4444</code></div>
+      <div class="swatch"><i style="background:var(--purple)"></i>Purple<code>#7C3AED</code></div>
+    </div>
+  </section>
+
+  <!-- TYPE -->
+  <section class="ds-sec">
+    <h2>Typography — Inter</h2>
+    <div class="type-spec"><span class="meta">3xl / 800</span><span style="font-size:var(--t-3xl);font-weight:800;letter-spacing:-.025em">Good morning, Jeff</span></div>
+    <div class="type-spec"><span class="meta">xl / 800</span><span style="font-size:var(--t-xl);font-weight:800">Section heading</span></div>
+    <div class="type-spec"><span class="meta">md / 700</span><span style="font-size:var(--t-md);font-weight:700">Card title</span></div>
+    <div class="type-spec"><span class="meta">base / 400</span><span style="font-size:var(--t-base)">Body text — here's how your shop is performing today.</span></div>
+    <div class="type-spec"><span class="meta">13 / muted</span><span style="font-size:var(--t-13);color:var(--ink-3)">Helper / annotation text</span></div>
+    <div class="type-spec"><span class="meta">2xl / 800 tnum</span><span class="tnum" style="font-size:var(--t-2xl);font-weight:800;letter-spacing:-.02em">$1,240</span></div>
+  </section>
+
+  <!-- KPI STRIP -->
+  <section class="ds-sec">
+    <h2>Navy KPI strip</h2>
+    <div class="kpi-strip">
+      <div class="kpi">
+        <div class="kpi-head"><span class="kpi-bubble blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V10M6 20v-6M18 20V6"/></svg></span><span class="kpi-label">Billed Hrs vs Capacity</span></div>
+        <div class="kpi-value tnum">18.5 <small>/ 32 hrs</small></div>
+        <div class="kpi-sub">58%</div>
+        <div class="kpi-bar"><i style="width:58%"></i></div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-head"><span class="kpi-bubble green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg></span><span class="kpi-label">Collected Today</span></div>
+        <div class="kpi-value tnum">$1,240</div>
+        <div class="kpi-sub"><span class="up">↑ 16%</span> vs yesterday</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-head"><span class="kpi-bubble red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.7 3.9a2 2 0 00-3.4 0zM12 9v4M12 17h.01"/></svg></span><span class="kpi-label">Outstanding / At Risk</span></div>
+        <div class="kpi-value tnum">$840</div>
+        <div class="kpi-sub down">2 jobs not invoiced</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STAT CARDS -->
+  <section class="ds-sec">
+    <h2>Stat cards</h2>
+    <div class="grid-3">
+      <div class="stat-card">
+        <div class="stat-head"><span class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></span><span class="stat-label">Jobs Today</span></div>
+        <div class="stat-value">8</div><div class="stat-sub">4 open • 4 done&nbsp;&nbsp;Goal: 10</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-head"><span class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 17h14l-1.5-5a2 2 0 00-1.9-1.4H8.4A2 2 0 006.5 12L5 17zM5 17v2M19 17v2"/><circle cx="7.5" cy="17" r="1.5"/><circle cx="16.5" cy="17" r="1.5"/></svg></span><span class="stat-label">Cars in Shop (WIP)</span></div>
+        <div class="stat-value">6</div><div class="stat-sub"><span class="amber">2 late</span> • <span class="amber">1 waiting parts</span></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-head"><span class="stat-icon purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/></svg></span><span class="stat-label">ARO</span></div>
+        <div class="stat-value tnum">$318</div><div class="stat-sub">Target: $425 • 7-day trend ↑</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BUTTONS + TOGGLE -->
+  <section class="ds-sec">
+    <h2>Buttons &amp; segmented toggle</h2>
+    <div class="ds-row">
+      <button class="btn btn-primary">Primary</button>
+      <button class="btn btn-secondary">Secondary</button>
+      <button class="btn btn-ghost">Ghost</button>
+      <button class="btn btn-danger">Danger</button>
+      <button class="btn btn-primary btn-sm">+ New RO</button>
+    </div>
+    <div class="ds-row">
+      <div class="seg"><button class="active">Today</button><button>Week</button><button>Month</button></div>
+    </div>
+  </section>
+
+  <!-- BADGES -->
+  <section class="ds-sec">
+    <h2>Status badges</h2>
+    <div class="ds-row">
+      <span class="badge badge-amber">Waiting</span>
+      <span class="badge badge-blue">In Progress</span>
+      <span class="badge badge-green">Ready</span>
+      <span class="badge badge-green">Paid</span>
+      <span class="badge badge-red">Unpaid</span>
+      <span class="badge badge-red">Late 40m</span>
+      <span class="badge badge-amber">Parts</span>
+      <span class="badge badge-green">Invoice</span>
+      <span class="badge badge-purple">On Hold</span>
+      <span class="badge badge-blue">Approved</span>
+      <span class="badge badge-red">Declined</span>
+      <span class="badge badge-gray">Pending</span>
+    </div>
+  </section>
+
+  <!-- KANBAN -->
+  <section class="ds-sec">
+    <h2>Kanban (Live Jobs / CRM pipeline)</h2>
+    <div class="kanban">
+      <div class="kan-col"><div class="kan-col-head"><span class="badge badge-amber">2</span> Waiting</div>
+        <div class="kan-cards">
+          <div class="kan-card"><div class="kan-top"><span class="make-badge">H</span><span class="kan-name">Maria J.</span></div><div class="kan-sub">Honda Civic · Oil Change</div><div class="kan-meta"><span class="badge badge-gray">Bay 2</span></div></div>
+          <div class="kan-card"><div class="kan-top"><span class="make-badge">F</span><span class="kan-name">James M.</span></div><div class="kan-sub">Ford F-150 · Brakes</div><div class="kan-meta"><span class="badge badge-amber">Parts</span></div></div>
+        </div>
+      </div>
+      <div class="kan-col"><div class="kan-col-head"><span class="badge badge-blue">1</span> In Progress</div>
+        <div class="kan-cards">
+          <div class="kan-card"><div class="kan-top"><span class="make-badge">T</span><span class="kan-name">David M.</span></div><div class="kan-sub">Toyota Camry · Tune-up</div><div class="kan-meta"><span class="badge badge-blue">Bay 3 • Marcus</span><span class="badge badge-red">Late 40m</span></div></div>
+        </div>
+      </div>
+      <div class="kan-col"><div class="kan-col-head"><span class="badge badge-green">1</span> Ready</div>
+        <div class="kan-cards">
+          <div class="kan-card"><div class="kan-top"><span class="make-badge">B</span><span class="kan-name">Amanda L.</span></div><div class="kan-sub">BMW 330i · Inspection</div><div class="kan-meta"><span class="badge badge-green">Ready 25m</span></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TABLE + FLAGS -->
+  <section class="ds-sec">
+    <h2>Table &amp; flag rows</h2>
+    <div class="grid-2" style="align-items:start">
+      <div class="card"><div class="card-head"><div class="card-title">Today's Schedule</div></div>
+        <div class="card-body" style="padding-top:var(--s3)">
+          <table class="table">
+            <thead><tr><th>Time</th><th>Customer</th><th>Service</th></tr></thead>
+            <tbody>
+              <tr><td><span class="row"><span class="dot dot-green"></span>8:00 AM</span></td><td class="strong">Maria J.</td><td>Oil Change</td></tr>
+              <tr><td><span class="row"><span class="dot dot-blue"></span>9:30 AM</span></td><td class="strong">David M.</td><td>Tune-up</td></tr>
+              <tr><td><span class="row"><span class="dot dot-amber"></span>11:00 AM</span></td><td class="strong">James M.</td><td>Brakes</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card"><div class="card-head"><div class="card-title">Flags</div></div>
+        <div class="card-body" style="padding-top:var(--s3)">
+          <div class="flag"><span class="dot dot-red"></span><div class="flag-body"><div class="flag-title">2 completed jobs not invoiced</div><div class="flag-sub">$840 waiting to be billed</div></div><span class="flag-chev">›</span></div>
+          <div class="flag"><span class="dot dot-amber"></span><div class="flag-body"><div class="flag-title">Camry past estimate 40 min</div><div class="flag-sub">Bay 3 • Marcus</div></div><span class="flag-chev">›</span></div>
+          <div class="flag"><span class="dot dot-blue"></span><div class="flag-body"><div class="flag-title">1 comeback opened today</div><div class="flag-sub">2018 Accord • RO-1038</div></div><span class="flag-chev">›</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FORMS -->
+  <section class="ds-sec">
+    <h2>Form elements</h2>
+    <div class="card"><div class="card-body grid-2">
+      <div class="field"><label class="label">Customer</label><input class="input" placeholder="Search name…"></div>
+      <div class="field"><label class="label">Service</label><select class="select"><option>Oil Change</option><option>Brakes</option></select></div>
+      <div class="field" style="grid-column:1/-1"><label class="label">Notes</label><textarea class="textarea" placeholder="Symptoms or concerns…"></textarea></div>
+      <label class="check"><input type="checkbox" checked> Require shop confirmation</label>
+      <div class="row"><span class="toggle on"></span><span class="muted">Online booking enabled</span></div>
+    </div></div>
+  </section>
+
+  <!-- NAVY CONTEXT (team pulse + insight + overview + gauge) -->
+  <section class="ds-sec">
+    <h2>Navy context panel components</h2>
+    <div class="card navy"><div class="card-body">
+      <div class="ctx-title" style="color:#fff">Overview</div>
+      <div class="ov-row"><span class="ov-l">Collected Today</span><span class="ov-v green tnum">$1,240</span></div>
+      <div class="ov-row"><span class="ov-l">Outstanding</span><span class="ov-v red tnum">$840</span></div>
+      <div class="ov-row"><span class="ov-l">ARO</span><span class="ov-v tnum">$318</span></div>
+      <div class="ctx-section ctx-title" style="color:#fff;font-size:var(--t-md)">Team Pulse</div>
+      <div class="grid-2">
+        <div class="panel-card"><div class="row between"><div class="pc-name">Marcus</div><span class="dot dot-green"></span></div><div class="pc-sub">Bay 3 · 5.8 hrs • $3,840</div><div style="color:#5CD98A;font-weight:600;font-size:var(--t-13);margin-top:4px">Working</div></div>
+        <div class="panel-card"><div class="row between"><div class="pc-name">Chris</div><span class="dot dot-amber"></span></div><div class="pc-sub">Bay 4 · 2.1 hrs • $1,960</div><div style="color:var(--amber);font-weight:600;font-size:var(--t-13);margin-top:4px">Idle</div></div>
+      </div>
+      <div class="ctx-section insight"><span class="insight-bubble"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><div class="insight-text"><b>Team is 6.5 billed hrs behind pace</b> — each active tech needs 1.6 more hrs before close.</div></div>
+    </div></div>
+  </section>
+
+  <!-- EMPTY + ALERT + LOCKED -->
+  <section class="ds-sec">
+    <h2>Empty state · alert · locked feature</h2>
+    <div class="grid-3" style="align-items:start">
+      <div class="card"><div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg><div class="empty-title">No jobs scheduled</div><div class="empty-sub">New bookings will appear here once confirmed.</div></div></div>
+      <div class="card"><div class="card-body"><div class="alert alert-amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.7 3.9a2 2 0 00-3.4 0zM12 9v4M12 17h.01"/></svg><div><b>Over capacity by 7.5 hrs</b><br>Reschedule or confirm more techs.</div></div></div></div>
+      <div class="locked"><span class="lock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg></span><div class="empty-title">Marketing is on Growth</div><div class="empty-sub">Upgrade to follow up on estimates and recover declined work.</div><button class="btn btn-primary btn-sm">Upgrade</button></div>
+    </div>
+  </section>
+
+  <div class="muted" style="font-size:var(--t-13);text-align:center;padding-top:var(--s6);border-top:1px solid var(--rule)">
+    All components above are defined once in <code>style.css</code> and reused on every page. This is the source of truth.
+  </div>
+</div>
+</body>
+</html>
