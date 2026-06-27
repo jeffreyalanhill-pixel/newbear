@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoBook — Turn your shop website into a booking machine</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* page-scoped LAYOUT only — §11.16, public marketing site. Same fonts/
+     colors/rounded-card language as the app, "a touch more promotional." */
+  .lp-nav{display:flex;justify-content:space-between;align-items:center;padding:var(--s5) var(--s8);max-width:1200px;margin:0 auto}
+  .lp-logo{display:flex;align-items:center;gap:var(--s2);font-weight:800;font-size:var(--t-lg);color:var(--ink)}
+  .lp-hero{max-width:1200px;margin:0 auto;padding:var(--s8) var(--s8) var(--s10);display:grid;grid-template-columns:1fr 1fr;gap:var(--s8);align-items:center}
+  @media(max-width:900px){.lp-hero{grid-template-columns:1fr}}
+  .lp-h1{font-size:var(--t-4xl);font-weight:900;letter-spacing:-.02em;line-height:1.1;margin-bottom:var(--s4)}
+  .lp-sub{font-size:var(--t-md);color:var(--ink-3);margin-bottom:var(--s6)}
+  .lp-cta-row{display:flex;gap:var(--s3);flex-wrap:wrap}
+  .lp-preview-frame{border:1px solid var(--rule);border-radius:var(--r-panel);box-shadow:var(--shadow-pop);overflow:hidden;background:var(--canvas)}
+  .lp-preview-frame iframe{width:100%;height:560px;border:0;display:block}
+  .lp-values{max-width:1200px;margin:0 auto;padding:0 var(--s8) var(--s10)}
+  .lp-value-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s4);margin-top:var(--s6)}
+  @media(max-width:900px){.lp-value-grid{grid-template-columns:1fr}}
+  .lp-demo-bar{max-width:1200px;margin:0 auto var(--s10);padding:0 var(--s8);display:flex;gap:var(--s3);align-items:center}
+</style>
+</head>
+<body>
+<div class="lp-nav">
+  <div class="lp-logo">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="26" height="26"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
+    AutoBook
+  </div>
+  <div class="row" style="gap:var(--s3)">
+    <a href="dashboard.html" class="btn btn-secondary">Owner Login</a>
+  </div>
+</div>
+
+<div class="lp-hero">
+  <div>
+    <div class="lp-h1">Turn your shop website into a booking machine</div>
+    <div class="lp-sub">Capture appointments 24/7, run the floor in real time, and get paid — all from one cockpit built for independent auto shops.</div>
+    <div class="lp-cta-row">
+      <a href="booking.html" class="btn btn-primary">Try the booking demo</a>
+      <a href="dashboard.html" class="btn btn-secondary">See the dashboard</a>
+    </div>
+  </div>
+  <div class="lp-preview-frame">
+    <iframe src="booking.html?embed=1" title="Live booking preview"></iframe>
+  </div>
+</div>
+
+<div class="lp-values">
+  <div class="section-label">Why shops switch</div>
+  <div class="lp-value-grid">
+    <div class="card"><div class="card-body">
+      <div class="stat-icon blue" style="margin-bottom:var(--s3)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg></div>
+      <div class="stat-label" style="margin-bottom:6px">Fill every bay</div>
+      <div class="muted">A 4-step booking widget that takes minutes, not phone tag.</div>
+    </div></div>
+    <div class="card"><div class="card-body">
+      <div class="stat-icon green" style="margin-bottom:var(--s3)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M5 17h14l-1.5-5a2 2 0 00-1.9-1.4H8.4A2 2 0 006.5 12L5 17zM5 17v2M19 17v2"/><circle cx="7.5" cy="17" r="1.5"/><circle cx="16.5" cy="17" r="1.5"/></svg></div>
+      <div class="stat-label" style="margin-bottom:6px">Run the floor live</div>
+      <div class="muted">Dispatch, live monitor, and a lobby board your customers can watch.</div>
+    </div></div>
+    <div class="card"><div class="card-body">
+      <div class="stat-icon purple" style="margin-bottom:var(--s3)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg></div>
+      <div class="stat-label" style="margin-bottom:6px">Get paid faster</div>
+      <div class="muted">Invoices, split-tender checkout, and a CRM that remembers every visit.</div>
+    </div></div>
+  </div>
+</div>
+
+<div class="lp-demo-bar">
+  <span class="muted" style="font-size:var(--t-13)">Demo data controls:</span>
+  <button class="btn btn-secondary btn-sm" id="inject-demo-btn">Inject Demo Data</button>
+  <button class="btn btn-danger btn-sm" id="reset-demo-btn">Reset Demo</button>
+</div>
+
+<script type="module">
+  import { db } from './lib/data.js';
+  db.init();
+  import('./lib/nav.js').then(({ toast, confirmDialog }) => {
+    document.getElementById('inject-demo-btn').addEventListener('click', () => {
+      db.init();
+      toast('Demo data is ready.', 'success');
+    });
+    document.getElementById('reset-demo-btn').addEventListener('click', async () => {
+      const confirmed = await confirmDialog('Reset all demo data? This wipes every shop, customer, and job back to the seed state.', { confirmLabel: 'Reset' });
+      if (!confirmed) return;
+      db.reset();
+      toast('Demo data reset.', 'success');
+    });
+  });
+</script>
+</body>
+</html>

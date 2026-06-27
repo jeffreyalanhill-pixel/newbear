@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoBook — Lobby Board</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* page-scoped LAYOUT + the sanctioned dark-theme exception (§5.0/§11.7):
+     same font (Inter), same badge/card language, just darker + bigger for
+     distance reading. No icon-rail — this is a customer-facing TV display. */
+  body{background:var(--panel)}
+  .board-wrap{padding:var(--s6);min-height:100vh;display:flex;flex-direction:column}
+  .board-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--s5)}
+  .board-brand{color:#fff;font-size:var(--t-2xl);font-weight:800;display:flex;align-items:center;gap:var(--s3)}
+  .board-clock{color:var(--panel-txt);text-align:right}
+  .board-clock .time{font-size:var(--t-2xl);font-weight:700;font-variant-numeric:tabular-nums}
+  .board-clock .updated{font-size:var(--t-13)}
+  .board-grid{display:grid;grid-template-columns:35% 1fr;gap:var(--s5);flex:1}
+  .now-serving{background:var(--panel-2);border:1px solid var(--panel-rule);border-radius:var(--r-panel);padding:var(--s6);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+  .ns-ticket{color:var(--panel-txt);font-size:var(--t-md);font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:var(--s3)}
+  .ns-make{width:72px;height:72px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:var(--t-2xl);margin-bottom:var(--s4)}
+  .ns-vehicle{color:#fff;font-size:var(--t-3xl);font-weight:800;margin-bottom:var(--s2)}
+  .ns-name{color:var(--panel-txt);font-size:var(--t-lg);margin-bottom:var(--s4)}
+  .ns-status{font-size:var(--t-xl);font-weight:700;padding:var(--s2) var(--s5);border-radius:var(--r-full)}
+  .queue-panel{background:var(--panel-2);border:1px solid var(--panel-rule);border-radius:var(--r-panel);padding:var(--s5);display:flex;flex-direction:column}
+  .queue-title{color:var(--panel-txt);font-size:var(--t-sm);font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:var(--s4)}
+  .queue-row{display:grid;grid-template-columns:90px 1fr 1fr 1fr;gap:var(--s4);align-items:center;padding:var(--s4) 0;border-bottom:1px solid var(--panel-rule);font-size:var(--t-lg)}
+  .queue-row:last-child{border-bottom:none}
+  .queue-row.ready{color:#5CD98A}
+  .queue-ticket{font-weight:800;color:#fff;font-variant-numeric:tabular-nums}
+  .queue-name{color:#fff}
+  .queue-vehicle{color:var(--panel-txt)}
+  .queue-next{font-weight:700;text-align:right}
+  .board-foot{display:flex;justify-content:space-between;color:var(--panel-txt);font-size:var(--t-13);margin-top:var(--s5)}
+</style>
+</head>
+<body>
+<div class="board-wrap">
+  <div class="board-top">
+    <div class="board-brand">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="28" height="28"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
+      <span id="shop-name">AutoBook</span>
+    </div>
+    <div class="board-clock">
+      <div class="time" id="clock"></div>
+      <div class="updated" id="last-updated"></div>
+    </div>
+  </div>
+
+  <div class="board-grid">
+    <div class="now-serving" id="now-serving"></div>
+    <div class="queue-panel">
+      <div class="queue-title">Queue</div>
+      <div id="queue-body" style="flex:1"></div>
+    </div>
+  </div>
+
+  <div class="board-foot">
+    <span>Thank you for your patience.</span>
+    <span id="wifi-line"></span>
+  </div>
+</div>
+
+<script type="module">
+  import { db } from './lib/data.js';
+  db.init();
+  import('./modules/waiting-room.js').then(m => m.renderWaitingRoom());
+</script>
+</body>
+</html>

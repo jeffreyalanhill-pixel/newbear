@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoBook — Inventory</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* page-scoped LAYOUT only — §11.11 */
+  .qty-adjust{display:flex;align-items:center;gap:6px}
+  .qty-adjust button{width:24px;height:24px;border-radius:6px;border:1px solid var(--rule);background:var(--card);font-weight:700}
+  .qty-adjust button:hover{background:var(--canvas)}
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <nav class="icon-rail" id="icon-rail"></nav>
+
+  <div class="main-col">
+    <header class="app-header">
+      <div>
+        <div class="greeting-title">Inventory</div>
+        <div class="greeting-sub">Parts on hand, reorder points, and stock adjustments.</div>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-primary" id="add-part-btn">+ Add Part</button>
+        <div class="avatar" id="avatar">J</div>
+      </div>
+    </header>
+
+    <div class="page-body">
+      <div id="low-stock-banner"></div>
+      <div class="card">
+        <div class="card-body">
+          <table class="table">
+            <thead>
+              <tr><th>Name</th><th>SKU</th><th>Category</th><th class="num">On Hand</th><th class="num">Reorder</th><th class="num">Cost</th><th class="num">Price</th><th>Vendor</th><th></th></tr>
+            </thead>
+            <tbody id="parts-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="inv-overlay">
+  <div class="modal" id="inv-modal" style="max-width:420px"></div>
+</div>
+
+<script type="module">
+  import { db } from './lib/data.js';
+  db.init();
+  import('./modules/inventory.js').then(m => m.renderInventory());
+</script>
+</body>
+</html>

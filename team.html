@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoBook — Team</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* page-scoped LAYOUT only — §B, Phase 1 (Employees directory + profile,
+     Roles & Permissions, basic Schedule). Full TeamOps (time clock, PTO,
+     payroll, documents, performance) are later phases. */
+  .team-tabs{margin-bottom:var(--s5)}
+  .emp-row{display:flex;justify-content:space-between;align-items:center;padding:var(--s3);border:1px solid var(--rule);border-radius:var(--r-md);margin-bottom:var(--s2);cursor:pointer;transition:border-color .15s}
+  .emp-row:hover{border-color:var(--accent-mid)}
+  .emp-avatar{width:40px;height:40px;border-radius:50%;background:var(--accent-lt);color:var(--accent);display:grid;place-items:center;font-weight:700;font-size:var(--t-13);flex-shrink:0}
+  .role-card{border:1px solid var(--rule);border-radius:var(--r-md);padding:var(--s4);margin-bottom:var(--s3)}
+  .role-card:last-child{margin-bottom:0}
+  .perm-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:var(--s3)}
+  .perm-toggle{display:flex;align-items:center;gap:6px;font-size:var(--t-13);color:var(--ink-2)}
+  .sched-grid{display:grid;grid-template-columns:140px repeat(5,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:var(--r-md);overflow:hidden}
+  .sched-cell{background:var(--card);padding:var(--s2);font-size:var(--t-13)}
+  .sched-cell.head{background:var(--canvas);font-weight:700;text-align:center}
+  .sched-cell.name{font-weight:600;color:var(--ink);display:flex;align-items:center}
+  .activity-row{display:flex;justify-content:space-between;padding:var(--s2) 0;border-bottom:1px solid var(--rule);font-size:var(--t-13)}
+  .activity-row:last-child{border-bottom:none}
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <nav class="icon-rail" id="icon-rail"></nav>
+
+  <div class="main-col">
+    <header class="app-header">
+      <div>
+        <div class="greeting-title">Team</div>
+        <div class="greeting-sub">Run your shop team from the same place you manage your bookings.</div>
+      </div>
+      <div class="header-actions">
+        <button class="icon-btn" title="Notifications">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+        </button>
+        <div class="avatar" id="avatar">J</div>
+      </div>
+    </header>
+
+    <div class="page-body">
+      <div class="seg team-tabs" id="team-tabs">
+        <button data-view="employees">Employees</button>
+        <button data-view="roles">Roles &amp; Permissions</button>
+        <button data-view="schedule">Schedule</button>
+      </div>
+      <div id="team-view-body"></div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="team-overlay">
+  <div class="drawer" id="team-drawer"></div>
+</div>
+
+<script type="module">
+  import { db } from './lib/data.js';
+  db.init();
+  import('./modules/team/team-app.js').then(m => m.renderTeam());
+</script>
+</body>
+</html>

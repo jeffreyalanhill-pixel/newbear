@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoBook — Settings</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* page-scoped LAYOUT only — §11.13. Technicians/Bays-as-employees already
+     live in Team (Part B); Coupons moved conceptually to Marketing (Part D)
+     but the underlying settings.coupons data is still managed here until a
+     first-class Coupon entity exists. */
+  .settings-tabs{margin-bottom:var(--s5)}
+  .item-row{display:flex;justify-content:space-between;align-items:center;padding:var(--s3);border:1px solid var(--rule);border-radius:var(--r-md);margin-bottom:var(--s2)}
+  .item-row:last-child{margin-bottom:0}
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <nav class="icon-rail" id="icon-rail"></nav>
+
+  <div class="main-col">
+    <header class="app-header">
+      <div>
+        <div class="greeting-title">Settings</div>
+        <div class="greeting-sub">Shop info, services, bays, and coupons.</div>
+      </div>
+      <div class="header-actions">
+        <div class="avatar" id="avatar">J</div>
+      </div>
+    </header>
+
+    <div class="page-body">
+      <div class="seg settings-tabs" id="settings-tabs">
+        <button data-view="shop">Shop</button>
+        <button data-view="services">Services</button>
+        <button data-view="bays">Bays</button>
+        <button data-view="coupons">Coupons</button>
+      </div>
+      <div id="settings-view-body"></div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { db } from './lib/data.js';
+  db.init();
+  import('./modules/settings.js').then(m => m.renderSettings());
+</script>
+</body>
+</html>

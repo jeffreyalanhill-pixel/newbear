@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoBook — Marketing</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* page-scoped LAYOUT only — §D, Phase 1 (Segments, Templates merge-fields,
+     coupon attach, audience preview, send-and-log). No separate marketing
+     aesthetic — same cards/tables/badges as the rest of the app. */
+  .mkt-tabs{margin-bottom:var(--s5)}
+  .seg-card,.tpl-card,.camp-card{border:1px solid var(--rule);border-radius:var(--r-md);padding:var(--s4);margin-bottom:var(--s3)}
+  .seg-card:last-child,.tpl-card:last-child,.camp-card:last-child{margin-bottom:0}
+  .audience-list{max-height:240px;overflow-y:auto;margin-top:var(--s3)}
+  .audience-row{display:flex;justify-content:space-between;padding:6px 0;font-size:var(--t-13);border-bottom:1px solid var(--rule)}
+  .audience-row:last-child{border-bottom:none}
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <nav class="icon-rail" id="icon-rail"></nav>
+
+  <div class="main-col">
+    <header class="app-header">
+      <div>
+        <div class="greeting-title">Marketing</div>
+        <div class="greeting-sub">Turn customer history into repeat business.</div>
+      </div>
+      <div class="header-actions">
+        <button class="icon-btn" title="Notifications">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+        </button>
+        <div class="avatar" id="avatar">J</div>
+      </div>
+    </header>
+
+    <div class="page-body">
+      <div class="seg mkt-tabs" id="mkt-tabs">
+        <button data-view="dashboard">Dashboard</button>
+        <button data-view="segments">Segments</button>
+        <button data-view="campaigns">Campaigns</button>
+      </div>
+      <div id="mkt-view-body"></div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { db } from './lib/data.js';
+  db.init();
+  import('./modules/marketing/mkt-app.js').then(m => m.renderMarketing());
+</script>
+</body>
+</html>

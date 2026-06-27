@@ -95,6 +95,13 @@ function openConfirmModal(bookingId) {
             ${db.bays().map((b) => `<option value="${b.id}">${b.name}</option>`).join('')}
           </select>
         </div>
+        <div class="field">
+          <label class="label">Assign advisor (optional)</label>
+          <select class="select" id="confirm-advisor">
+            <option value="">Unassigned</option>
+            ${db.employees().filter((e) => !e.isTech).map((e) => `<option value="${e.id}">${e.firstName} ${e.lastName}</option>`).join('')}
+          </select>
+        </div>
       </div>
       <div class="modal-foot">
         <button class="btn btn-secondary" data-close>Cancel</button>
@@ -112,8 +119,9 @@ function openConfirmModal(bookingId) {
   overlay.querySelector('#confirm-go-btn').addEventListener('click', () => {
     const techId = overlay.querySelector('#confirm-tech').value || null;
     const bayId = overlay.querySelector('#confirm-bay').value || null;
+    const advisorId = overlay.querySelector('#confirm-advisor').value || null;
     try {
-      const ro = util.confirmBooking(bookingId, { techId, bayId });
+      const ro = util.confirmBooking(bookingId, { techId, bayId, advisorId });
       toast(`${ro.ro} scheduled for ${util.fmtDate(ro.scheduledDate)}.`, 'success');
       close();
       renderPending();
