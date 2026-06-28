@@ -1,13 +1,16 @@
 // AutoBook — modules/repair-orders.js (§11.2)
 // RO list + full detail drawer. All status changes go through util's §9
 // transitions; all line-item math goes through util.recalcRO. This page never
-// sets ro.status directly.
+// sets ro.status directly. Edit mode (this step) works on a local draft —
+// nothing touches localStorage until Save, and Save always goes through the
+// single util.updateRO write path.
 
 import { db } from '../lib/data.js';
 import { util } from '../lib/util.js';
 import { renderNav, toast, confirmDialog } from '../lib/nav.js';
 
 let currentRoId = null;
+let editDraft = null; // null = view mode; otherwise a local, unsaved copy of editable fields
 
 export function renderRepairOrders() {
   renderNav('#icon-rail', 'repair-orders.html');
@@ -90,6 +93,7 @@ function renderList() {
 // ---------------------------------------------------------------------------
 function openDrawer(roId) {
   currentRoId = roId;
+  editDraft = null;
   renderDrawer();
   document.getElementById('ro-overlay').classList.add('open');
 }
@@ -97,17 +101,19 @@ function openDrawer(roId) {
 function closeDrawer() {
   document.getElementById('ro-overlay').classList.remove('open');
   currentRoId = null;
+  editDraft = null;
 }
 
 function lineRow(line) {
+  const typeLabel = { part: '(part)', labor: '(labor)', fee: '(fee)', discount: '(discount)' }[line.type] || '';
   return `
     <div class="li-row">
-      <span>${line.name}${line.type === 'part' ? ' <span class="muted" style="font-size:var(--t-xs)">(part)</span>' : line.type === 'labor' ? ' <span class="muted" style="font-size:var(--t-xs)">(labor)</span>' : ''}</span>
+      <span>${line.name}${typeLabel ? ` <span class="muted" style="font-size:var(--t-xs)">${typeLabel}</span>` : ''}</span>
       <span>${line.qty || ''}</span>
       <span>${line.hours ? line.hours + 'h' : ''}</span>
       <span class="tnum">${util.fmtMoney(line.unitPrice || 0)}</span>
       <span class="tnum strong">${util.fmtMoney(line.total)}</span>
-      <button class="btn-ghost" data-remove-line="${line.id}" title="Remove" style="padding:2px">✕</button>
+      <span></span>
     </div>`;
 }
 
@@ -127,34 +133,60 @@ function statusActionButtons(ro) {
 
 const DVI_ITEMS = ['Brakes', 'Tires', 'Fluids', 'Battery', 'Lights', 'Belts/Hoses'];
 
+function headerActions(ro) {
+  const locked = util.isROLocked(ro);
+  return `
+    <button class="icon-btn" id="print-ro-btn" title="Print">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+    </button>
+    <button class="icon-btn" id="email-ro-btn" title="Email">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
+    </button>
+    ${locked ? '' : '<button class="btn btn-secondary btn-sm" id="edit-ro-btn">Edit</button>'}
+    <button class="icon-btn" id="close-drawer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+  `;
+}
+
 function renderDrawer() {
   const ro = db.jobById(currentRoId);
   if (!ro) return;
+  document.getElementById('ro-drawer').innerHTML = editDraft ? editDrawerHtml(ro) : viewDrawerHtml(ro);
+  wireDrawerEvents(ro);
+}
+
+// ---------------------------------------------------------------------------
+// View mode
+// ---------------------------------------------------------------------------
+function viewDrawerHtml(ro) {
   const c = db.customerById(ro.customerId);
   const v = db.vehicleById(ro.vehicleId);
+  const tech = db.techById(ro.techId);
+  const bay = db.bayById(ro.bayId);
   const meta = util.statusMeta(ro.status);
-  const services = db.services();
-  const parts = db.parts();
+  const locked = util.isROLocked(ro);
 
-  document.getElementById('ro-drawer').innerHTML = `
+  return `
     <div class="modal-head">
       <div>
         <div class="modal-title">${ro.ro} <span class="badge ${meta.badgeClass}" style="margin-left:8px">${meta.label}</span></div>
         <div class="muted" style="font-size:var(--t-13);margin-top:4px">${util.customerName(c)} · ${util.vehicleLabel(v)} · ${(v?.mileage || 0).toLocaleString()} mi</div>
       </div>
-      <button class="icon-btn" id="close-drawer">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-      </button>
+      <div class="row" style="gap:var(--s2)">${headerActions(ro)}</div>
     </div>
     <div class="modal-body">
+      ${locked ? `<div class="alert alert-amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.7 3.9a2 2 0 00-3.4 0zM12 9v4M12 17h.01"/></svg><div>This RO is <b>${ro.status}</b> — its totals may already be reflected on an invoice/payment. Changes need an adjustment/change order, not a direct edit.</div></div>` : ''}
+
+      <div class="ro-detail-section">
+        <h4>Assigned</h4>
+        <div class="row between" style="padding:4px 0"><span class="muted">Technician</span><span>${tech ? tech.firstName + ' ' + tech.lastName : '—'}</span></div>
+        <div class="row between" style="padding:4px 0"><span class="muted">Bay</span><span>${bay?.name || '—'}</span></div>
+        <div class="row between" style="padding:4px 0"><span class="muted">Promised</span><span>${ro.promisedAt ? util.fmtDate(ro.promisedAt) : '—'}</span></div>
+      </div>
+
       <div class="ro-detail-section">
         <h4>Line items</h4>
         <div class="li-row head"><span>Item</span><span>Qty</span><span>Hrs</span><span>Unit</span><span>Total</span><span></span></div>
         ${(ro.lineItems || []).map(lineRow).join('') || '<div class="empty-sub" style="padding:var(--s2) 0">No line items yet.</div>'}
-        <div class="add-line-row">
-          <select id="add-service-select"><option value="">+ Add service…</option>${services.map((s) => `<option value="${s.id}">${s.name} (${util.fmtMoney(s.basePrice)})</option>`).join('')}</select>
-          <select id="add-part-select"><option value="">+ Add part…</option>${parts.map((p) => `<option value="${p.id}">${p.name} (${util.fmtMoney(p.price)}, ${p.qtyOnHand} in stock)</option>`).join('')}</select>
-        </div>
         <div class="li-totals">
           <span>Subtotal: <b class="tnum">${util.fmtMoney(ro.subtotal)}</b></span>
           <span>Discount: <b class="tnum">-${util.fmtMoney(ro.discount || 0)}</b></span>
@@ -196,8 +228,10 @@ function renderDrawer() {
 
       <div class="ro-detail-section">
         <h4>Notes</h4>
-        <div class="field"><label class="label">Customer notes</label><textarea class="textarea" id="notes-field" placeholder="Symptoms or concerns…">${ro.notes || ''}</textarea></div>
-        <div class="field" style="margin-top:var(--s3)"><label class="label">Internal notes</label><textarea class="textarea" id="internal-notes-field" placeholder="Tech/advisor notes…">${ro.internalNotes || ''}</textarea></div>
+        <div class="row between" style="padding:4px 0"><span class="muted">Customer-facing</span></div>
+        <div style="font-size:var(--t-13);color:var(--ink-2)">${ro.notes || '—'}</div>
+        <div class="row between" style="padding:4px 0;margin-top:var(--s3)"><span class="muted">Internal</span></div>
+        <div style="font-size:var(--t-13);color:var(--ink-2)">${ro.internalNotes || '—'}</div>
       </div>
 
       <div class="ro-detail-section">
@@ -206,10 +240,134 @@ function renderDrawer() {
       </div>
     </div>
   `;
-
-  wireDrawerEvents(ro);
 }
 
+// ---------------------------------------------------------------------------
+// Edit mode — works entirely on `editDraft` until Save; nothing is written
+// to localStorage until then, so Cancel can discard freely.
+// ---------------------------------------------------------------------------
+function startEdit(ro) {
+  editDraft = {
+    notes: ro.notes || '',
+    internalNotes: ro.internalNotes || '',
+    techId: ro.techId || '',
+    bayId: ro.bayId || '',
+    promisedAt: ro.promisedAt ? ro.promisedAt.slice(0, 10) : '',
+    lineItems: (ro.lineItems || []).map((l, i) => ({ ...l, _key: l.id || `new_${i}` })),
+  };
+  renderDrawer();
+}
+
+function editLineRow(line, idx) {
+  const typeLabel = { part: 'Part', labor: 'Labor', fee: 'Fee', discount: 'Discount', service: 'Service' }[line.type] || line.type;
+  return `
+    <div class="li-row" data-line-key="${line._key}">
+      <span class="row" style="gap:6px"><span class="muted" style="font-size:var(--t-xs);width:46px;flex-shrink:0">${typeLabel}</span><input class="input" data-edit-field="name" data-idx="${idx}" value="${line.name || ''}" style="font-size:var(--t-13);padding:4px 6px"></span>
+      <input class="input" type="number" min="0" step="1" data-edit-field="qty" data-idx="${idx}" value="${line.qty ?? ''}" style="font-size:var(--t-13);padding:4px 6px">
+      <input class="input" type="number" min="0" step="0.25" data-edit-field="hours" data-idx="${idx}" value="${line.hours ?? ''}" style="font-size:var(--t-13);padding:4px 6px">
+      <input class="input" type="number" min="0" step="0.01" data-edit-field="unitPrice" data-idx="${idx}" value="${line.unitPrice ?? ''}" style="font-size:var(--t-13);padding:4px 6px">
+      <span class="tnum strong" data-line-total="${idx}">${util.fmtMoney(previewLineTotal(line))}</span>
+      <button class="btn-ghost" data-remove-line-idx="${idx}" title="Remove" style="padding:2px">✕</button>
+    </div>`;
+}
+
+// Mirrors util.quoteLineTotal's labor formula / the qty*unitPrice formula
+// recalcRO uses — display-only preview while editing; util.recalcRO is the
+// real calculation that runs on Save.
+function previewLineTotal(line) {
+  const laborRate = db.settings().laborRate || 0;
+  const n = (x) => Number(x) || 0;
+  if (line.type === 'labor') return Math.round(n(line.hours) * laborRate * 100) / 100;
+  return Math.round(n(line.qty) * n(line.unitPrice) * 100) / 100;
+}
+
+function previewTotals(lineItems) {
+  const taxRate = db.settings().taxRate || 0;
+  const subtotal = Math.round(lineItems.reduce((s, l) => s + previewLineTotal(l), 0) * 100) / 100;
+  const tax = Math.round(subtotal * taxRate * 100) / 100;
+  return { subtotal, tax, total: Math.round((subtotal + tax) * 100) / 100 };
+}
+
+function editDrawerHtml(ro) {
+  const c = db.customerById(ro.customerId);
+  const v = db.vehicleById(ro.vehicleId);
+  const meta = util.statusMeta(ro.status);
+  const services = db.services();
+  const parts = db.parts();
+  const techs = db.techs();
+  const bays = db.bays();
+  const t = previewTotals(editDraft.lineItems);
+
+  return `
+    <div class="modal-head">
+      <div>
+        <div class="modal-title">Edit ${ro.ro} <span class="badge ${meta.badgeClass}" style="margin-left:8px">${meta.label}</span></div>
+        <div class="muted" style="font-size:var(--t-13);margin-top:4px">${util.customerName(c)} · ${util.vehicleLabel(v)}</div>
+      </div>
+      <button class="icon-btn" id="close-drawer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="ro-detail-section">
+        <h4>Assigned</h4>
+        <div class="grid-2">
+          <div class="field">
+            <label class="label">Technician</label>
+            <select class="select" id="edit-tech">
+              <option value="">Unassigned</option>
+              ${techs.map((tch) => `<option value="${tch.id}" ${editDraft.techId === tch.id ? 'selected' : ''}>${tch.firstName} ${tch.lastName}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field">
+            <label class="label">Bay</label>
+            <select class="select" id="edit-bay">
+              <option value="">Unassigned</option>
+              ${bays.map((b) => `<option value="${b.id}" ${editDraft.bayId === b.id ? 'selected' : ''}>${b.name}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field" style="grid-column:1/-1">
+            <label class="label">Promised date</label>
+            <input class="input" type="date" id="edit-promised" value="${editDraft.promisedAt}">
+          </div>
+        </div>
+      </div>
+
+      <div class="ro-detail-section">
+        <h4>Line items</h4>
+        <div class="li-row head"><span>Item</span><span>Qty</span><span>Hrs</span><span>Unit</span><span>Total</span><span></span></div>
+        <div id="edit-lines">${editDraft.lineItems.map((l, i) => editLineRow(l, i)).join('') || '<div class="empty-sub" style="padding:var(--s2) 0">No line items yet.</div>'}</div>
+        <div class="add-line-row">
+          <select id="add-service-select"><option value="">+ Add service…</option>${services.map((s) => `<option value="${s.id}">${s.name} (${util.fmtMoney(s.basePrice)})</option>`).join('')}</select>
+          <select id="add-part-select"><option value="">+ Add part…</option>${parts.map((p) => `<option value="${p.id}">${p.name} (${util.fmtMoney(p.price)}, ${p.qtyOnHand} in stock)</option>`).join('')}</select>
+          <button class="btn btn-secondary btn-sm" id="add-labor-btn">+ Add labor</button>
+        </div>
+        <div class="li-totals" id="edit-totals">
+          <span>Subtotal: <b class="tnum" id="edit-subtotal">${util.fmtMoney(t.subtotal)}</b></span>
+          <span>Tax: <b class="tnum" id="edit-tax">${util.fmtMoney(t.tax)}</b></span>
+          <span class="grand tnum" id="edit-grand">TOTAL: ${util.fmtMoney(t.total)}</span>
+        </div>
+      </div>
+
+      <div class="ro-detail-section">
+        <h4>Notes</h4>
+        <div class="field"><label class="label">Customer-facing</label><textarea class="textarea" id="edit-notes" placeholder="Symptoms or concerns…">${editDraft.notes}</textarea></div>
+        <div class="field" style="margin-top:var(--s3)"><label class="label">Internal</label><textarea class="textarea" id="edit-internal-notes" placeholder="Tech/advisor notes…">${editDraft.internalNotes}</textarea></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" id="cancel-edit-btn">Cancel</button>
+      <button class="btn btn-primary" id="save-edit-btn">Save</button>
+    </div>
+  `;
+}
+
+function recalcEditPreview() {
+  const t = previewTotals(editDraft.lineItems);
+  document.getElementById('edit-subtotal').textContent = util.fmtMoney(t.subtotal);
+  document.getElementById('edit-tax').textContent = util.fmtMoney(t.tax);
+  document.getElementById('edit-grand').textContent = `TOTAL: ${util.fmtMoney(t.total)}`;
+}
+
+// ---------------------------------------------------------------------------
 function refreshAfterChange() {
   renderDrawer();
   renderList();
@@ -218,29 +376,14 @@ function refreshAfterChange() {
 function wireDrawerEvents(ro) {
   document.getElementById('close-drawer').addEventListener('click', closeDrawer);
 
-  document.getElementById('add-service-select').addEventListener('change', (e) => {
-    const svc = db.serviceById(e.target.value);
-    if (!svc) return;
-    util.addLineItem(ro.id, { type: 'service', refId: svc.id, name: svc.name, qty: 1, unitPrice: svc.basePrice, hours: svc.baseHours });
-    refreshAfterChange();
-  });
-  document.getElementById('add-part-select').addEventListener('change', (e) => {
-    const part = db.partById(e.target.value);
-    if (!part) return;
-    if (part.qtyOnHand <= 0) {
-      toast(`${part.name} is out of stock.`, 'error');
-      e.target.value = '';
-      return;
-    }
-    util.addLineItem(ro.id, { type: 'part', refId: part.id, name: part.name, qty: 1, unitPrice: part.price });
-    refreshAfterChange();
-  });
-  document.querySelectorAll('[data-remove-line]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      util.removeLineItem(ro.id, btn.dataset.removeLine);
-      refreshAfterChange();
-    });
-  });
+  if (editDraft) {
+    wireEditEvents(ro);
+    return;
+  }
+
+  document.getElementById('edit-ro-btn')?.addEventListener('click', () => startEdit(ro));
+  document.getElementById('print-ro-btn').addEventListener('click', () => printRO(ro));
+  document.getElementById('email-ro-btn').addEventListener('click', () => openEmailPreview(ro));
 
   document.querySelectorAll('[data-dvi]').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -262,17 +405,6 @@ function wireDrawerEvents(ro) {
     refreshAfterChange();
   });
 
-  document.getElementById('notes-field')?.addEventListener('blur', (e) => {
-    const j = db.jobById(ro.id);
-    j.notes = e.target.value;
-    db.saveJobs(db.jobs().map((x) => (x.id === j.id ? j : x)));
-  });
-  document.getElementById('internal-notes-field')?.addEventListener('blur', (e) => {
-    const j = db.jobById(ro.id);
-    j.internalNotes = e.target.value;
-    db.saveJobs(db.jobs().map((x) => (x.id === j.id ? j : x)));
-  });
-
   document.querySelectorAll('[data-action]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       try {
@@ -283,6 +415,75 @@ function wireDrawerEvents(ro) {
       refreshAfterChange();
     });
   });
+}
+
+function wireEditEvents(ro) {
+  document.getElementById('cancel-edit-btn').addEventListener('click', () => {
+    editDraft = null;
+    renderDrawer();
+  });
+  document.getElementById('save-edit-btn').addEventListener('click', () => saveEdit(ro));
+
+  document.getElementById('edit-tech').addEventListener('change', (e) => { editDraft.techId = e.target.value; });
+  document.getElementById('edit-bay').addEventListener('change', (e) => { editDraft.bayId = e.target.value; });
+  document.getElementById('edit-promised').addEventListener('change', (e) => { editDraft.promisedAt = e.target.value; });
+  document.getElementById('edit-notes').addEventListener('input', (e) => { editDraft.notes = e.target.value; });
+  document.getElementById('edit-internal-notes').addEventListener('input', (e) => { editDraft.internalNotes = e.target.value; });
+
+  document.querySelectorAll('[data-edit-field]').forEach((input) => {
+    input.addEventListener('input', () => {
+      const idx = Number(input.dataset.idx);
+      const field = input.dataset.editField;
+      const line = editDraft.lineItems[idx];
+      line[field] = field === 'name' ? input.value : Number(input.value) || 0;
+      const totalEl = document.querySelector(`[data-line-total="${idx}"]`);
+      if (totalEl) totalEl.textContent = util.fmtMoney(previewLineTotal(line));
+      recalcEditPreview();
+    });
+  });
+
+  document.querySelectorAll('[data-remove-line-idx]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      editDraft.lineItems.splice(Number(btn.dataset.removeLineIdx), 1);
+      renderDrawer();
+    });
+  });
+
+  document.getElementById('add-service-select').addEventListener('change', (e) => {
+    const svc = db.serviceById(e.target.value);
+    if (!svc) return;
+    editDraft.lineItems.push({ _key: `new_${Date.now()}`, type: 'service', refId: svc.id, name: svc.name, qty: 1, unitPrice: svc.basePrice, hours: svc.baseHours });
+    renderDrawer();
+  });
+  document.getElementById('add-part-select').addEventListener('change', (e) => {
+    const part = db.partById(e.target.value);
+    if (!part) return;
+    editDraft.lineItems.push({ _key: `new_${Date.now()}`, type: 'part', refId: part.id, name: part.name, qty: 1, unitPrice: part.price });
+    renderDrawer();
+  });
+  document.getElementById('add-labor-btn').addEventListener('click', () => {
+    editDraft.lineItems.push({ _key: `new_${Date.now()}`, type: 'labor', name: 'Labor', hours: 1, qty: 1, unitPrice: db.settings().laborRate || 0 });
+    renderDrawer();
+  });
+}
+
+function saveEdit(ro) {
+  try {
+    const lineItems = editDraft.lineItems.map(({ _key, ...l }) => l);
+    util.updateRO(ro.id, {
+      notes: editDraft.notes,
+      internalNotes: editDraft.internalNotes,
+      techId: editDraft.techId,
+      bayId: editDraft.bayId,
+      promisedAt: editDraft.promisedAt ? new Date(editDraft.promisedAt + 'T00:00:00').toISOString() : null,
+      lineItems,
+    });
+    editDraft = null;
+    toast(`${ro.ro} updated.`, 'success');
+    refreshAfterChange();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
 }
 
 async function runAction(action, roId) {
@@ -313,4 +514,129 @@ async function runAction(action, roId) {
     default:
       return;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Print — browser print, no external libraries. Builds a standalone
+// printable document in a new window/tab and calls window.print().
+// ---------------------------------------------------------------------------
+function printRO(ro) {
+  const c = db.customerById(ro.customerId);
+  const v = db.vehicleById(ro.vehicleId);
+  const tech = db.techById(ro.techId);
+  const bay = db.bayById(ro.bayId);
+  const shop = db.settings();
+  const meta = util.statusMeta(ro.status);
+
+  const win = window.open('', '_blank');
+  if (!win) {
+    toast('Allow pop-ups to print this repair order.', 'error');
+    return;
+  }
+  win.document.write(`
+    <!DOCTYPE html>
+    <html><head><meta charset="UTF-8"><title>${ro.ro} — ${shop.name || 'My Shop'}</title>
+    <style>
+      body{font-family:Arial,Helvetica,sans-serif;color:#15181E;padding:32px;max-width:760px;margin:0 auto}
+      .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #071A3D;padding-bottom:16px;margin-bottom:20px}
+      .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:20px}
+      h1{font-size:18px;margin:0 0 4px}
+      .muted{color:#6B7280;font-size:13px}
+      table{width:100%;border-collapse:collapse;margin-top:16px}
+      th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #E5E7EB;font-size:13px}
+      th{text-transform:uppercase;font-size:11px;color:#6B7280}
+      .num{text-align:right}
+      .totals{margin-top:12px;text-align:right;font-size:14px}
+      .totals .grand{font-size:18px;font-weight:800;margin-top:6px}
+      .section{margin-top:20px}
+      .section h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:#6B7280;margin:0 0 6px}
+    </style></head>
+    <body>
+      <div class="head">
+        <div class="brand">
+          <svg viewBox="0 0 256 256" width="30" height="30"><defs><linearGradient id="tb" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#7DD3FC"/><stop offset="50%" stop-color="#1E88FF"/><stop offset="100%" stop-color="#2563EB"/></linearGradient></defs><circle cx="128" cy="132" r="62" fill="#071A3D"/><circle cx="128" cy="132" r="34" fill="#FFFFFF"/><path d="M 67 72 A 92 92 0 0 1 197 81" fill="none" stroke="url(#tb)" stroke-width="18"/><path d="M 120 144 L 205 59 L 143 158 Z" fill="url(#tb)"/><circle cx="128" cy="132" r="13" fill="#FFFFFF" stroke="#1E88FF" stroke-width="5"/></svg>
+          Torklio
+        </div>
+        <div style="text-align:right">
+          <h1>${ro.ro}</h1>
+          <div class="muted">${meta.label} · ${util.fmtDate(ro.createdAt)}</div>
+        </div>
+      </div>
+      <div class="muted">${shop.name || ''} · ${shop.address || ''} · ${shop.phone || ''}</div>
+
+      <div class="section">
+        <h2>Customer</h2>
+        <div>${util.customerName(c)} — ${c?.phone || ''} ${c?.email ? '· ' + c.email : ''}</div>
+        <h2 style="margin-top:10px">Vehicle</h2>
+        <div>${util.vehicleLabel(v)} — ${(v?.mileage || 0).toLocaleString()} mi</div>
+      </div>
+
+      ${ro.notes ? `<div class="section"><h2>Concern</h2><div>${ro.notes}</div></div>` : ''}
+
+      <div class="section">
+        <h2>Line items</h2>
+        <table>
+          <thead><tr><th>Item</th><th class="num">Qty/Hrs</th><th class="num">Unit</th><th class="num">Total</th></tr></thead>
+          <tbody>
+            ${(ro.lineItems || []).map((l) => `<tr><td>${l.name}</td><td class="num">${l.type === 'labor' ? (l.hours || 0) + ' hr' : (l.qty || '')}</td><td class="num">${util.fmtMoney(l.unitPrice || 0)}</td><td class="num">${util.fmtMoney(l.total)}</td></tr>`).join('')}
+          </tbody>
+        </table>
+        <div class="totals">
+          <div>Subtotal: ${util.fmtMoney(ro.subtotal)}</div>
+          ${ro.discount ? `<div>Discount: -${util.fmtMoney(ro.discount)}</div>` : ''}
+          <div>Tax: ${util.fmtMoney(ro.tax)}</div>
+          <div class="grand">Total: ${util.fmtMoney(ro.total)}</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Assigned</h2>
+        <div>Technician: ${tech ? tech.firstName + ' ' + tech.lastName : '—'} · Bay: ${bay?.name || '—'}</div>
+      </div>
+
+      ${ro.internalNotes ? `<div class="section"><h2>Notes</h2><div>${ro.internalNotes}</div></div>` : ''}
+    </body></html>
+  `);
+  win.document.close();
+  win.focus();
+  win.print();
+}
+
+// ---------------------------------------------------------------------------
+// Email placeholder — preview modal only, no real send. "Log Email (Demo)"
+// writes a real Communication record (util.logROEmail) so it shows up on
+// the customer's activity timeline, same entity Marketing campaigns use.
+// ---------------------------------------------------------------------------
+function openEmailPreview(ro) {
+  const preview = util.buildROEmailPreview(ro.id);
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay open';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:480px">
+      <div class="modal-head">
+        <div class="modal-title">Email Preview <span class="badge badge-gray" style="margin-left:8px">placeholder — no real email sent</span></div>
+        <button class="icon-btn" id="close-email-preview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="field"><label class="label">To</label><input class="input" value="${preview.to || 'No email on file'}" disabled></div>
+        <div class="field"><label class="label">Subject</label><input class="input" value="${preview.subject}" disabled></div>
+        <div class="field"><label class="label">Message</label><textarea class="textarea" disabled>${preview.body}</textarea></div>
+        <div class="muted" style="font-size:var(--t-13)">${ro.ro} · ${util.fmtMoney(ro.total)} · ${(ro.lineItems || []).length} line item${(ro.lineItems || []).length === 1 ? '' : 's'}</div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-secondary" id="cancel-email-preview">Cancel</button>
+        <button class="btn btn-primary" id="log-email-btn">Log Email (Demo)</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const cleanup = () => overlay.remove();
+  overlay.querySelector('#close-email-preview').addEventListener('click', cleanup);
+  overlay.querySelector('#cancel-email-preview').addEventListener('click', cleanup);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); });
+  overlay.querySelector('#log-email-btn').addEventListener('click', () => {
+    util.logROEmail(ro.id);
+    toast('Email logged (demo only — nothing was actually sent).', 'success');
+    cleanup();
+  });
 }
