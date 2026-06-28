@@ -7,6 +7,7 @@
 import { db } from '../../lib/data.js';
 import { util } from '../../lib/util.js';
 import { toast, confirmDialog } from '../../lib/nav.js';
+import { takeCampaignPrefill } from './mkt-app.js';
 
 const CAMPAIGN_TYPES = [
   { value: 'email', label: 'Email' },
@@ -25,44 +26,74 @@ export function renderCampaigns(mount) {
 
   mount.innerHTML = `
     <div class="card" style="margin-bottom:var(--s4)">
-      <div class="card-head"><div class="card-title">New Campaign</div></div>
-      <div class="card-body grid-2">
-        <div class="field"><label class="label">Campaign name</label><input class="input" id="nc-name" placeholder="e.g. Spring Service Reminder"></div>
-        <div class="field">
-          <label class="label">Type</label>
-          <select class="select" id="nc-type">${CAMPAIGN_TYPES.map((t) => `<option value="${t.value}">${t.label}</option>`).join('')}</select>
-        </div>
-        <div class="field" style="grid-column:1/-1">
-          <label class="label">Customer segment</label>
-          <select class="select" id="nc-segment">${segments.map((s) => `<option value="${s.id}">${s.name} (${db.segmentMembers(s.id).length})</option>`).join('')}</select>
-        </div>
-        <div class="field" style="grid-column:1/-1"><label class="label">Subject / title</label><input class="input" id="nc-subject" placeholder="e.g. Time for an oil change, {{firstName}}?"></div>
-        <div class="field" style="grid-column:1/-1"><label class="label">Message</label><textarea class="textarea" id="nc-body" placeholder="Hi {{firstName}}, ..."></textarea></div>
-        <div class="field">
-          <label class="label">Offer / coupon (optional)</label>
-          <select class="select" id="nc-offer">
-            <option value="">No offer</option>
-            ${coupons.map((c) => `<option value="${c.code}">${c.code}</option>`).join('')}
-          </select>
-        </div>
-        <div class="field"><label class="label">Schedule date (optional)</label><input class="input" type="date" id="nc-schedule"></div>
-        <div style="grid-column:1/-1">
-          <div class="muted" style="font-size:var(--t-13);margin-bottom:var(--s2)">Preview (merge fields resolved for the first matching customer):</div>
-          <div class="card navy" style="padding:var(--s4)" id="nc-preview">
-            <div class="empty-sub" style="color:var(--panel-txt)">Select a segment and enter a message to preview.</div>
+      <div class="card-head">
+        <div class="card-title">Campaign Builder</div>
+        <span class="badge badge-blue">New</span>
+      </div>
+      <div class="card-body">
+        <div class="section-label" style="margin-bottom:var(--s3)">1 · Basics</div>
+        <div class="grid-2" style="margin-bottom:var(--s5)">
+          <div class="field"><label class="label">Campaign name</label><input class="input" id="nc-name" placeholder="e.g. Spring Service Reminder"></div>
+          <div class="field">
+            <label class="label">Type</label>
+            <select class="select" id="nc-type">${CAMPAIGN_TYPES.map((t) => `<option value="${t.value}">${t.label}</option>`).join('')}</select>
           </div>
         </div>
-        <div style="grid-column:1/-1"><button class="btn btn-primary" id="add-campaign-btn">Save as Draft</button></div>
+
+        <div class="section-label" style="margin-bottom:var(--s3)">2 · Audience &amp; Message</div>
+        <div class="grid-2" style="margin-bottom:var(--s5)">
+          <div class="field" style="grid-column:1/-1">
+            <label class="label">Customer segment</label>
+            <select class="select" id="nc-segment">${segments.map((s) => `<option value="${s.id}">${s.name} (${db.segmentMembers(s.id).length} reachable)</option>`).join('')}</select>
+          </div>
+          <div class="field" style="grid-column:1/-1"><label class="label">Subject / title</label><input class="input" id="nc-subject" placeholder="e.g. Time for an oil change, {{firstName}}?"></div>
+          <div class="field" style="grid-column:1/-1"><label class="label">Message</label><textarea class="textarea" id="nc-body" placeholder="Hi {{firstName}}, ..."></textarea></div>
+        </div>
+
+        <div class="section-label" style="margin-bottom:var(--s3)">3 · Offer &amp; Schedule</div>
+        <div class="grid-2" style="margin-bottom:var(--s5)">
+          <div class="field">
+            <label class="label">Offer / coupon (optional)</label>
+            <select class="select" id="nc-offer">
+              <option value="">No offer</option>
+              ${coupons.map((c) => `<option value="${c.code}">${c.code}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field"><label class="label">Schedule date (optional)</label><input class="input" type="date" id="nc-schedule"></div>
+        </div>
+
+        <div class="section-label" style="margin-bottom:var(--s3)">4 · Preview &amp; Save</div>
+        <div class="muted" style="font-size:var(--t-13);margin-bottom:var(--s2)">Merge fields resolved for the first matching customer:</div>
+        <div class="card navy" style="padding:var(--s4);margin-bottom:var(--s4)" id="nc-preview">
+          <div class="empty-sub" style="color:var(--panel-txt)">Select a segment and enter a message to preview.</div>
+        </div>
+        <button class="btn btn-primary" id="add-campaign-btn">Save as Draft</button>
       </div>
     </div>
-    <div class="card"><div class="card-head"><div class="card-title">Campaigns</div></div><div class="card-body" id="campaigns-list"></div></div>
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">Campaigns</div>
+        <span class="badge badge-gray">opened/booked are placeholders until real sending exists</span>
+      </div>
+      <div class="card-body" id="campaigns-list"></div>
+    </div>
   `;
 
   const updatePreview = () => renderPreview();
   ['nc-segment', 'nc-subject', 'nc-body', 'nc-offer'].forEach((id) => document.getElementById(id).addEventListener('input', updatePreview));
   document.getElementById('add-campaign-btn').addEventListener('click', addCampaign);
+  applyPrefill();
   updatePreview();
   renderList();
+}
+
+function applyPrefill() {
+  const prefill = takeCampaignPrefill();
+  if (!prefill) return;
+  document.getElementById('nc-name').value = prefill.name || '';
+  document.getElementById('nc-type').value = prefill.type || 'email';
+  if (prefill.segmentId) document.getElementById('nc-segment').value = prefill.segmentId;
+  document.getElementById('nc-subject').focus();
 }
 
 function renderPreview() {

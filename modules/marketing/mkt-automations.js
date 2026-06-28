@@ -21,16 +21,19 @@ export function renderAutomations(mount) {
 function render() {
   const automations = db.automations();
   document.getElementById('automation-cards').innerHTML = automations.map((a) => `
-    <div class="stat-card">
+    <div class="stat-card" style="${a.status === 'on' ? 'border-color:var(--green)' : ''}">
       <div class="stat-head">
         <span class="stat-icon ${a.status === 'on' ? 'green' : 'amber'}">${iconBolt()}</span>
         <span class="stat-label">${a.name}</span>
       </div>
       <div class="muted" style="font-size:var(--t-13);margin:var(--s2) 0">${a.description}</div>
-      <div class="muted" style="font-size:var(--t-xs);margin-bottom:var(--s3)">Trigger: ${a.trigger}</div>
-      <div class="row between">
+      <div class="muted" style="font-size:var(--t-xs);margin-bottom:var(--s2)">Trigger: ${a.trigger}</div>
+      <div class="auto-toggle-row" data-toggle="${a.id}">
         <span class="badge ${a.status === 'on' ? 'badge-green' : 'badge-gray'}">${a.status === 'on' ? 'Enabled' : 'Disabled'}</span>
-        <span class="toggle ${a.status === 'on' ? 'on' : ''}" data-toggle="${a.id}"></span>
+        <span class="row" style="gap:var(--s2)">
+          <span class="toggle-label">${a.status === 'on' ? 'Turn off' : 'Turn on'}</span>
+          <span class="toggle ${a.status === 'on' ? 'on' : ''}"></span>
+        </span>
       </div>
     </div>
   `).join('');

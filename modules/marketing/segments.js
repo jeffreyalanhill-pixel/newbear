@@ -53,14 +53,19 @@ function renderCards() {
   const el = document.getElementById('segment-cards');
   if (!el) return;
   const segments = CANONICAL_IDS.map((id) => db.segmentById(id)).filter(Boolean);
+  const totalReachable = db.customers().filter((c) => !c.doNotContact).length || 1;
   el.innerHTML = segments.map((s) => {
     const count = db.segmentMembers(s.id).length;
     const isAssumption = (s.description || '').startsWith('ASSUMPTION');
+    const [assumptionNote, realNote] = isAssumption
+      ? [s.description.replace(/^ASSUMPTION:\s*/, ''), '']
+      : ['', s.description || ''];
     return `
     <div class="stat-card">
       <div class="stat-head"><span class="stat-icon ${isAssumption ? 'amber' : 'blue'}">${iconUsers()}</span><span class="stat-label">${s.name}</span></div>
       <div class="stat-value">${count}</div>
-      <div class="stat-sub">${s.description || ''}</div>
+      <div class="mkt-bar-track"><div class="mkt-bar-fill${isAssumption ? ' amber' : ''}" style="width:${Math.min(100, (count / totalReachable) * 100)}%"></div></div>
+      <div class="stat-sub" style="margin-top:var(--s2)">${isAssumption ? `<span class="badge badge-amber" style="font-size:10px;margin-right:4px">assumption</span>${assumptionNote}` : realNote}</div>
     </div>`;
   }).join('');
 }
