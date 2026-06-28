@@ -1,13 +1,24 @@
 // AutoBook — modules/team/employees.js (§B.4.2/B.4.3, Phase 1)
-// Directory + profile (Overview / Role & Permissions / Activity tabs).
+// Directory + profile (Overview / Role & Permissions / Activity tabs) +
+// basic Add/Edit Employee (this step). Saving always goes through
+// db.employees()/db.saveEmployees — same localStorage pattern every other
+// module uses, no new persistence mechanism introduced.
 
 import { db } from '../../lib/data.js';
 import { util } from '../../lib/util.js';
 import { auth } from '../../lib/auth.js';
+import { toast } from '../../lib/nav.js';
 import { openTeamDrawer, closeTeamDrawer } from './team-app.js';
 
+const EMPLOYMENT_STATUSES = ['active', 'inactive', 'on_leave', 'terminated'];
+const WORK_STATUSES = ['working', 'idle', 'waiting'];
+// Roles whose employees are technicians (drives bay assignment + floor
+// status, same as the existing `isTech`/`techs()` convention elsewhere).
+const TECH_ROLES = ['technician', 'apprentice'];
+
 export function renderEmployees(mount) {
-  mount.innerHTML = `<div class="card"><div class="card-head"><div class="card-title">Employees</div></div><div class="card-body" id="employees-list"></div></div>`;
+  mount.innerHTML = `<div class="card"><div class="card-head"><div class="card-title">Employees</div><button class="btn btn-primary btn-sm" id="add-employee-btn">+ Add Employee</button></div><div class="card-body" id="employees-list"></div></div>`;
+  document.getElementById('add-employee-btn').addEventListener('click', () => openEmployeeForm(null));
   renderList();
 }
 
@@ -50,7 +61,10 @@ function renderProfileDrawer(employeeId, tab) {
   openTeamDrawer(`
     <div class="modal-head">
       <div class="modal-title">${e.firstName} ${e.lastName}</div>
-      <button class="icon-btn" id="close-team-drawer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+      <div class="row" style="gap:var(--s2)">
+        <button class="btn btn-secondary btn-sm" id="edit-employee-btn">Edit</button>
+        <button class="icon-btn" id="close-team-drawer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+      </div>
     </div>
     <div class="modal-body">
       <div class="tabs" style="margin-bottom:var(--s4)">
@@ -63,6 +77,7 @@ function renderProfileDrawer(employeeId, tab) {
   `);
 
   document.getElementById('close-team-drawer').addEventListener('click', closeTeamDrawer);
+  document.getElementById('edit-employee-btn').addEventListener('click', () => openEmployeeForm(e.id));
   document.querySelectorAll('[data-tab]').forEach((t) => {
     t.addEventListener('click', () => renderProfileDrawer(employeeId, t.dataset.tab));
   });
@@ -103,4 +118,108 @@ function renderProfileDrawer(employeeId, tab) {
         </div>`).join('')
       : '<div class="empty-sub">No repair order activity yet.</div>';
   }
+}
+
+// ---------------------------------------------------------------------------
+// Add / Edit Employee form. Same drawer, just a different body — Cancel
+// returns to the read-only profile (Edit) or closes the drawer (Add).
+// ---------------------------------------------------------------------------
+function openEmployeeForm(employeeId) {
+  const e = employeeId ? db.employeeById(employeeId) : null;
+  const roles = db.roles();
+  const bays = db.bays();
+
+  openTeamDrawer(`
+    <div class="modal-head">
+      <div class="modal-title">${e ? `Edit ${e.firstName} ${e.lastName}` : 'New Employee'}</div>
+      <button class="icon-btn" id="close-team-drawer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="grid-2">
+        <div class="field"><label class="label">First name</label><input class="input" id="ef-first" value="${e?.firstName || ''}"></div>
+        <div class="field"><label class="label">Last name</label><input class="input" id="ef-last" value="${e?.lastName || ''}"></div>
+        <div class="field"><label class="label">Job title</label><input class="input" id="ef-title" value="${e?.jobTitle || ''}"></div>
+        <div class="field">
+          <label class="label">Role</label>
+          <select class="select" id="ef-role">
+            <option value="">Select role…</option>
+            ${roles.map((r) => `<option value="${r.id}" ${e?.role === r.id ? 'selected' : ''}>${r.name}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label class="label">Phone</label><input class="input" id="ef-phone" value="${e?.phone || ''}"></div>
+        <div class="field"><label class="label">Email</label><input class="input" type="email" id="ef-email" value="${e?.email || ''}"></div>
+        <div class="field">
+          <label class="label">Assigned bay</label>
+          <select class="select" id="ef-bay">
+            <option value="">Unassigned</option>
+            ${bays.map((b) => `<option value="${b.id}" ${e?.bayId === b.id ? 'selected' : ''}>${b.name}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label class="label">Work status</label>
+          <select class="select" id="ef-workstatus">
+            ${WORK_STATUSES.map((s) => `<option value="${s}" ${(e?.workStatus || 'idle') === s ? 'selected' : ''}>${s}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field" style="grid-column:1/-1">
+          <label class="label">Employment status</label>
+          <select class="select" id="ef-empstatus">
+            ${EMPLOYMENT_STATUSES.map((s) => `<option value="${s}" ${(e?.employmentStatus || 'active') === s ? 'selected' : ''}>${s.replace('_', ' ')}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" id="ef-cancel">Cancel</button>
+      <button class="btn btn-primary" id="ef-save">Save</button>
+    </div>
+  `);
+
+  document.getElementById('close-team-drawer').addEventListener('click', closeTeamDrawer);
+  document.getElementById('ef-cancel').addEventListener('click', () => {
+    if (e) renderProfileDrawer(e.id, 'overview');
+    else closeTeamDrawer();
+  });
+  document.getElementById('ef-save').addEventListener('click', () => saveEmployeeForm(employeeId));
+}
+
+function saveEmployeeForm(employeeId) {
+  const firstName = document.getElementById('ef-first').value.trim();
+  const lastName = document.getElementById('ef-last').value.trim();
+  const role = document.getElementById('ef-role').value;
+  if (!firstName || !lastName || !role) {
+    toast('First name, last name, and role are required.', 'error');
+    return;
+  }
+
+  const employees = db.employees();
+  const isTech = TECH_ROLES.includes(role);
+  const fields = {
+    firstName, lastName, role, isTech,
+    jobTitle: document.getElementById('ef-title').value.trim(),
+    phone: document.getElementById('ef-phone').value.trim(),
+    email: document.getElementById('ef-email').value.trim(),
+    bayId: document.getElementById('ef-bay').value || null,
+    workStatus: document.getElementById('ef-workstatus').value,
+    employmentStatus: document.getElementById('ef-empstatus').value,
+  };
+
+  let savedId = employeeId;
+  if (employeeId) {
+    const existing = employees.find((emp) => emp.id === employeeId);
+    Object.assign(existing, fields);
+  } else {
+    savedId = db.nextId('emp');
+    employees.push({
+      id: savedId,
+      avatar: (firstName.charAt(0) + lastName.charAt(0)).toUpperCase(),
+      payType: 'hourly', payRate: 0, clockStatus: 'out',
+      hireDate: new Date().toISOString().slice(0, 10), permissionOverrides: {},
+      ...fields,
+    });
+  }
+  db.saveEmployees(employees);
+  toast(employeeId ? 'Employee updated.' : 'Employee added.', 'success');
+  renderList();
+  renderProfileDrawer(savedId, 'overview');
 }
