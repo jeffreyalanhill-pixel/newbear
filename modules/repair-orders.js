@@ -8,9 +8,11 @@
 import { db } from '../lib/data.js';
 import { util } from '../lib/util.js';
 import { renderNav, toast, confirmDialog } from '../lib/nav.js';
+import { renderShareMenu, downloadCSV, downloadJSON, copyToClipboard, printHTML } from '../lib/export.js';
 
 let currentRoId = null;
 let editDraft = null; // null = view mode; otherwise a local, unsaved copy of editable fields
+let lastFilteredJobs = [];
 
 export function renderRepairOrders() {
   renderNav('#icon-rail', 'repair-orders.html');
@@ -26,6 +28,13 @@ export function renderRepairOrders() {
   document.getElementById('ro-overlay').addEventListener('click', (e) => {
     if (e.target.id === 'ro-overlay') closeDrawer();
   });
+
+  renderShareMenu(document.getElementById('ro-share-mount'), [
+    { label: 'Print List', onClick: printRoList },
+    { label: 'Export CSV', onClick: exportRoListCSV },
+    { label: 'Export JSON', onClick: exportRoListJSON },
+    { label: 'Copy Summary', onClick: copyRoListSummary },
+  ]);
 }
 
 function populateTechFilter() {
@@ -62,6 +71,7 @@ function renderList() {
     });
   }
   jobs = jobs.slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  lastFilteredJobs = jobs;
 
   const tbody = document.getElementById('ro-table-body');
   tbody.innerHTML = jobs.length
@@ -136,6 +146,7 @@ const DVI_ITEMS = ['Brakes', 'Tires', 'Fluids', 'Battery', 'Lights', 'Belts/Hose
 function headerActions(ro) {
   const locked = util.isROLocked(ro);
   return `
+    <span id="ro-detail-share-mount"></span>
     <button class="icon-btn" id="print-ro-btn" title="Print">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
     </button>
@@ -384,6 +395,11 @@ function wireDrawerEvents(ro) {
   document.getElementById('edit-ro-btn')?.addEventListener('click', () => startEdit(ro));
   document.getElementById('print-ro-btn').addEventListener('click', () => printRO(ro));
   document.getElementById('email-ro-btn').addEventListener('click', () => openEmailPreview(ro));
+  renderShareMenu(document.getElementById('ro-detail-share-mount'), [
+    { label: 'Copy Summary', onClick: () => copyRoSummary(ro) },
+    { label: 'Export CSV', onClick: () => exportSingleRoCSV(ro) },
+    { label: 'Export JSON', onClick: () => exportSingleRoJSON(ro) },
+  ]);
 
   document.querySelectorAll('[data-dvi]').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -639,4 +655,71 @@ function openEmailPreview(ro) {
     toast('Email logged (demo only — nothing was actually sent).', 'success');
     cleanup();
   });
+}
+
+// ---------------------------------------------------------------------------
+// Share / Export — Repair Orders list + selected RO. Reuses the same
+// filtered list renderList() already computed (lastFilteredJobs) and the
+// same RO object the drawer already has — no separate data path.
+// ---------------------------------------------------------------------------
+const RO_LIST_COLUMNS = [
+  { key: 'ro', label: 'RO' },
+  { label: 'Customer', value: (j) => util.customerName(db.customerById(j.customerId)) },
+  { label: 'Vehicle', value: (j) => util.vehicleLabel(db.vehicleById(j.vehicleId)) },
+  { key: 'status', label: 'Status' },
+  { label: 'Tech', value: (j) => db.techById(j.techId)?.firstName || '' },
+  { key: 'total', label: 'Total' },
+];
+
+function printRoList() {
+  const jobs = lastFilteredJobs;
+  printHTML('Repair Orders', `
+    <table>
+      <thead><tr><th>RO</th><th>Customer</th><th>Vehicle</th><th>Status</th><th>Tech</th><th class="num">Total</th></tr></thead>
+      <tbody>${jobs.map((j) => `<tr><td>${j.ro}</td><td>${util.customerName(db.customerById(j.customerId))}</td><td>${util.vehicleLabel(db.vehicleById(j.vehicleId))}</td><td>${util.statusMeta(j.status).label}</td><td>${db.techById(j.techId)?.firstName || '—'}</td><td class="num">${util.fmtMoney(j.total)}</td></tr>`).join('')}</tbody>
+    </table>
+  `);
+}
+
+function exportRoListCSV() {
+  downloadCSV('repair-orders', lastFilteredJobs, RO_LIST_COLUMNS);
+  toast('Repair orders exported as CSV.', 'success');
+}
+
+function exportRoListJSON() {
+  downloadJSON('repair-orders', lastFilteredJobs);
+  toast('Repair orders exported as JSON.', 'success');
+}
+
+function copyRoListSummary() {
+  const lines = [`Repair Orders (${lastFilteredJobs.length})`, ''];
+  lastFilteredJobs.forEach((j) => lines.push(`${j.ro} — ${util.customerName(db.customerById(j.customerId))} · ${util.vehicleLabel(db.vehicleById(j.vehicleId))} · ${util.statusMeta(j.status).label} · ${util.fmtMoney(j.total)}`));
+  copyToClipboard(lines.join('\n'));
+}
+
+function copyRoSummary(ro) {
+  const c = db.customerById(ro.customerId);
+  const v = db.vehicleById(ro.vehicleId);
+  const lines = [
+    `${ro.ro} — ${util.statusMeta(ro.status).label}`,
+    `Customer: ${util.customerName(c)}`,
+    `Vehicle: ${util.vehicleLabel(v)}`,
+    `Total: ${util.fmtMoney(ro.total)}`,
+    '', 'Line items:',
+    ...(ro.lineItems || []).map((l) => `  ${l.name} — ${util.fmtMoney(l.total)}`),
+  ];
+  copyToClipboard(lines.join('\n'));
+}
+
+function exportSingleRoCSV(ro) {
+  downloadCSV(ro.ro, ro.lineItems || [], [
+    { key: 'name', label: 'Item' }, { key: 'type', label: 'Type' }, { key: 'qty', label: 'Qty' },
+    { key: 'hours', label: 'Hours' }, { key: 'unitPrice', label: 'Unit Price' }, { key: 'total', label: 'Total' },
+  ]);
+  toast(`${ro.ro} exported as CSV.`, 'success');
+}
+
+function exportSingleRoJSON(ro) {
+  downloadJSON(ro.ro, ro);
+  toast(`${ro.ro} exported as JSON.`, 'success');
 }

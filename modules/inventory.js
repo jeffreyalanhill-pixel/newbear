@@ -6,6 +6,7 @@
 import { db } from '../lib/data.js';
 import { util } from '../lib/util.js';
 import { renderNav, toast, confirmDialog } from '../lib/nav.js';
+import { renderShareMenu, downloadCSV, downloadJSON, copyToClipboard, printHTML, showMessagePreview } from '../lib/export.js';
 
 export function renderInventory() {
   renderNav('#icon-rail', 'inventory.html');
@@ -14,6 +15,14 @@ export function renderInventory() {
   document.getElementById('inv-overlay').addEventListener('click', (e) => {
     if (e.target.id === 'inv-overlay') closeModal();
   });
+  renderShareMenu(document.getElementById('inv-share-mount'), [
+    { label: 'Print Inventory List', onClick: printInventoryList },
+    { label: 'Export CSV', onClick: exportInventoryCSV },
+    { label: 'Export JSON', onClick: exportInventoryJSON },
+    { label: 'Copy Low-Stock Summary', onClick: copyLowStockSummary },
+    { divider: true },
+    { label: 'Email Low-Stock Report Preview…', onClick: emailLowStockPreview },
+  ]);
   render();
 }
 
@@ -139,4 +148,56 @@ function savePart(partId) {
 
 function closeModal() {
   document.getElementById('inv-overlay').classList.remove('open');
+}
+
+// ---------------------------------------------------------------------------
+// Share / Export — Inventory. Reuses db.parts()/db.lowStockParts() directly,
+// same data the table/banner already render from.
+// ---------------------------------------------------------------------------
+const PART_COLUMNS = [
+  { key: 'name', label: 'Name' }, { key: 'sku', label: 'SKU' }, { key: 'category', label: 'Category' },
+  { key: 'qtyOnHand', label: 'On Hand' }, { key: 'reorderPoint', label: 'Reorder Point' },
+  { key: 'cost', label: 'Cost' }, { key: 'price', label: 'Price' }, { key: 'vendor', label: 'Vendor' },
+];
+
+function sortedParts() { return db.parts().slice().sort((a, b) => a.name.localeCompare(b.name)); }
+
+function printInventoryList() {
+  const parts = sortedParts();
+  printHTML('Inventory', `
+    <table>
+      <thead><tr><th>Name</th><th>SKU</th><th>Category</th><th class="num">On Hand</th><th class="num">Reorder</th><th class="num">Cost</th><th class="num">Price</th><th>Vendor</th></tr></thead>
+      <tbody>${parts.map((p) => `<tr><td>${p.name}</td><td>${p.sku}</td><td>${p.category}</td><td class="num">${p.qtyOnHand}</td><td class="num">${p.reorderPoint}</td><td class="num">${util.fmtMoney(p.cost)}</td><td class="num">${util.fmtMoney(p.price)}</td><td>${p.vendor}</td></tr>`).join('')}</tbody>
+    </table>
+  `);
+}
+
+function exportInventoryCSV() {
+  downloadCSV('inventory', sortedParts(), PART_COLUMNS);
+  toast('Inventory exported as CSV.', 'success');
+}
+
+function exportInventoryJSON() {
+  downloadJSON('inventory', sortedParts());
+  toast('Inventory exported as JSON.', 'success');
+}
+
+function lowStockSummaryLines() {
+  const low = db.lowStockParts();
+  const lines = [`Low-stock report — ${low.length} part${low.length === 1 ? '' : 's'} at or below reorder point`, ''];
+  low.forEach((p) => lines.push(`${p.name} (${p.sku}) — ${p.qtyOnHand} on hand, reorder at ${p.reorderPoint} · vendor: ${p.vendor}`));
+  if (!low.length) lines.push('Nothing is low on stock right now.');
+  return lines;
+}
+
+function copyLowStockSummary() {
+  copyToClipboard(lowStockSummaryLines().join('\n'));
+}
+
+function emailLowStockPreview() {
+  showMessagePreview({
+    channel: 'email', to: db.settings().email || '',
+    subject: `Low-stock report — ${db.lowStockParts().length} part(s) need reordering`,
+    body: lowStockSummaryLines().join('\n'),
+  });
 }

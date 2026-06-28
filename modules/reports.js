@@ -5,7 +5,8 @@
 
 import { db } from '../lib/data.js';
 import { util } from '../lib/util.js';
-import { renderNav } from '../lib/nav.js';
+import { renderNav, toast } from '../lib/nav.js';
+import { renderShareMenu, downloadCSV, downloadJSON, copyToClipboard, printHTML, showMessagePreview } from '../lib/export.js';
 
 let rangeDays = 14;
 
@@ -22,7 +23,81 @@ export function renderReports() {
     renderAll();
   });
 
+  renderShareMenu(document.getElementById('reports-share-mount'), [
+    { label: 'Print Report', onClick: printReport },
+    { label: 'Export CSV', onClick: exportReportCSV },
+    { label: 'Export JSON', onClick: exportReportJSON },
+    { label: 'Copy Summary', onClick: copyReportSummary },
+    { divider: true },
+    { label: 'Email Report Preview…', onClick: emailReportPreview },
+  ]);
+
   renderAll();
+}
+
+// ---------------------------------------------------------------------------
+// Share / Export — Reports. Reuses the exact same db/util aggregates the
+// charts already compute (lastNDays/db.invoices()/util.techStats/etc.) —
+// nothing here is a separate or hardcoded data path.
+// ---------------------------------------------------------------------------
+function reportDailyRows() {
+  const days = lastNDays(rangeDays);
+  const invoices = db.invoices();
+  return days.map((d) => {
+    const dayStr = d.toDateString();
+    const collected = invoices.reduce((sum, inv) => sum + (inv.payments || []).filter((p) => new Date(p.date).toDateString() === dayStr).reduce((s, p) => s + p.amount, 0), 0);
+    const dayInvoices = invoices.filter((inv) => new Date(inv.issuedAt).toDateString() === dayStr);
+    const aro = dayInvoices.length ? dayInvoices.reduce((s, i) => s + i.total, 0) / dayInvoices.length : 0;
+    return { date: d.toISOString().slice(0, 10), collected: Math.round(collected * 100) / 100, invoiceCount: dayInvoices.length, aro: Math.round(aro * 100) / 100 };
+  });
+}
+
+function reportSummaryLines() {
+  const rows = reportDailyRows();
+  const totalCollected = rows.reduce((s, r) => s + r.collected, 0);
+  const techStats = db.techs().map((t) => ({ name: `${t.firstName} ${t.lastName}`, ...util.techStats(t.id) }));
+  const lines = [
+    `Reports summary — last ${rangeDays} days`,
+    `Total collected: ${util.fmtMoney0(totalCollected)}`,
+    '',
+    'Tech productivity (today):',
+    ...techStats.map((s) => `  ${s.name}: ${s.billedHoursToday.toFixed(1)}h billed, ${s.activeJobs} active`),
+  ];
+  return lines;
+}
+
+function printReport() {
+  const rows = reportDailyRows();
+  printHTML(`Report — last ${rangeDays} days`, `
+    <table>
+      <thead><tr><th>Date</th><th class="num">Collected</th><th class="num">Invoices</th><th class="num">ARO</th></tr></thead>
+      <tbody>${rows.map((r) => `<tr><td>${util.fmtDate(r.date)}</td><td class="num">${util.fmtMoney(r.collected)}</td><td class="num">${r.invoiceCount}</td><td class="num">${util.fmtMoney(r.aro)}</td></tr>`).join('')}</tbody>
+    </table>
+  `);
+}
+
+function exportReportCSV() {
+  downloadCSV(`report-${rangeDays}d`, reportDailyRows(), [
+    { key: 'date', label: 'Date' }, { key: 'collected', label: 'Collected' }, { key: 'invoiceCount', label: 'Invoices' }, { key: 'aro', label: 'ARO' },
+  ]);
+  toast('Report exported as CSV.', 'success');
+}
+
+function exportReportJSON() {
+  downloadJSON(`report-${rangeDays}d`, reportDailyRows());
+  toast('Report exported as JSON.', 'success');
+}
+
+function copyReportSummary() {
+  copyToClipboard(reportSummaryLines().join('\n'));
+}
+
+function emailReportPreview() {
+  showMessagePreview({
+    channel: 'email', to: db.settings().email || '',
+    subject: `Shop report — last ${rangeDays} days`,
+    body: reportSummaryLines().join('\n'),
+  });
 }
 
 function renderAll() {

@@ -259,6 +259,15 @@ ul,ol{list-style:none} img,svg{display:block;max-width:100%}
 .alert svg{width:18px;height:18px;flex-shrink:0;margin-top:1px}
 .alert-red{background:var(--red-lt);color:#991B1B} .alert-amber{background:var(--amber-lt);color:#92610A} .alert-green{background:var(--green-lt);color:#166534}
 .locked{display:flex;flex-direction:column;align-items:center;text-align:center;padding:var(--s10);gap:var(--s3);background:var(--card);border:1px dashed var(--accent-mid);border-radius:var(--r-card)}
+
+/* Share/Export dropdown menu (lib/export.js renderShareMenu) — reusable
+   across every page that wires it in. */
+.share-menu-wrap{position:relative;display:inline-block}
+.share-menu{position:absolute;top:calc(100% + 6px);right:0;background:var(--card);border:1px solid var(--rule);border-radius:var(--r-md);box-shadow:var(--shadow-pop);min-width:220px;z-index:60;padding:6px;display:none}
+.share-menu.open{display:block}
+.share-menu button{display:block;width:100%;text-align:left;padding:8px 10px;border-radius:8px;font-size:var(--t-13);color:var(--ink-2);background:none;border:none;cursor:pointer}
+.share-menu button:hover{background:var(--canvas);color:var(--ink)}
+.share-menu-divider{height:1px;background:var(--rule);margin:4px 2px}
 .locked .lock-icon{width:48px;height:48px;border-radius:50%;background:var(--accent-lt);color:var(--accent);display:grid;place-items:center}
 
 /* 14. UTILITY -------------------------------------------------------------- */

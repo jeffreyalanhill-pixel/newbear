@@ -249,9 +249,25 @@ function renderAccountTab(body, e) {
 }
 
 // ---------------------------------------------------------------------------
+const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
 function renderScheduleTab(body, e) {
   const bays = db.bays();
+  const availability = db.availabilityForEmployee(e.id);
   body.innerHTML = `
+    <div class="card" style="margin-bottom:var(--s4)">
+      <div class="card-head"><div class="card-title">Weekly availability</div><span class="badge badge-green">real — feeds schedule conflict warnings</span></div>
+      <div class="card-body">
+        <div class="row" style="gap:6px;flex-wrap:wrap">
+          ${WEEKDAY_LABELS.map((label, dow) => {
+            const row = availability.find((a) => a.dayOfWeek === dow);
+            const available = row ? !!row.available : true;
+            return `<button class="btn ${available ? 'btn-secondary' : 'btn-danger'} btn-sm" data-avail-day="${dow}">${label}: ${available ? 'Available' : 'Off'}</button>`;
+          }).join('')}
+        </div>
+        <div class="muted" style="font-size:var(--t-xs);margin-top:var(--s2)">Click a day to toggle. This is a standing weekly pattern — separate from dated PTO requests.</div>
+      </div>
+    </div>
     <div class="card" style="margin-bottom:var(--s4)">
       <div class="card-head"><div class="card-title">Add shift</div></div>
       <div class="card-body grid-2">
@@ -342,6 +358,23 @@ function renderScheduleTab(body, e) {
     util.addShift(e.id, { date, start, end, bayId: document.getElementById('sh-bay').value || null, note: document.getElementById('sh-note').value.trim() });
     toast('Shift added.', 'success');
     renderShiftList();
+  });
+
+  document.querySelectorAll('[data-avail-day]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const dayOfWeek = Number(btn.dataset.availDay);
+      const rows = db.availability();
+      let row = rows.find((a) => a.employeeId === e.id && a.dayOfWeek === dayOfWeek);
+      if (!row) {
+        row = { id: db.nextId('avail'), employeeId: e.id, dayOfWeek, available: false, note: '' };
+        rows.push(row);
+      } else {
+        row.available = !row.available;
+      }
+      db.saveAvailability(rows);
+      toast(`${WEEKDAY_LABELS[dayOfWeek]} marked ${row.available ? 'available' : 'off'}.`, 'success');
+      renderScheduleTab(body, e);
+    });
   });
 
   renderShiftList();
