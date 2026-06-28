@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Torklio — Platform Admin (Demo)</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* page-scoped LAYOUT only — Phase E platform/admin placeholder. Not part
+     of the per-shop icon-rail app; this is the SaaS operator's own view
+     across every signed-up shop, clearly marked as demo-only. */
+  .pf-shell{max-width:1200px;margin:0 auto;padding:var(--s6) var(--s8) var(--s10)}
+  .pf-nav{display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--s5)}
+  .pf-logo{display:flex;align-items:center;gap:var(--s2);font-weight:800;font-size:var(--t-lg);color:var(--ink)}
+  .crm-bar-track{height:6px;background:var(--canvas);border-radius:var(--r-full);overflow:hidden;margin-top:var(--s2)}
+  .crm-bar-fill{height:100%;background:var(--accent);border-radius:var(--r-full)}
+</style>
+</head>
+<body>
+<div class="pf-shell">
+  <div class="pf-nav">
+    <div class="pf-logo">
+      <svg viewBox="0 0 256 256" width="24" height="24" aria-hidden="true">
+        <defs><linearGradient id="torklioBluePf" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#7DD3FC"/><stop offset="50%" stop-color="#1E88FF"/><stop offset="100%" stop-color="#2563EB"/></linearGradient></defs>
+        <circle cx="128" cy="132" r="62" fill="#071A3D"/>
+        <circle cx="128" cy="132" r="34" fill="#FFFFFF"/>
+        <path d="M 67 72 A 92 92 0 0 1 197 81" fill="none" stroke="url(#torklioBluePf)" stroke-width="18" stroke-linecap="butt"/>
+        <path d="M 120 144 L 205 59 L 143 158 Z" fill="url(#torklioBluePf)"/>
+        <circle cx="128" cy="132" r="13" fill="#FFFFFF" stroke="#1E88FF" stroke-width="5"/>
+      </svg>
+      Torklio <span class="badge badge-purple">Platform Admin · Demo Only</span>
+    </div>
+    <div class="row" style="gap:var(--s3)">
+      <a href="signup.html" class="btn btn-secondary">Signup / Pricing</a>
+      <a href="dashboard.html" class="btn btn-secondary">Shop Dashboard</a>
+    </div>
+  </div>
+  <div class="alert alert-amber" style="margin-bottom:var(--s5)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.7 3.9a2 2 0 00-3.4 0zM12 9v4M12 17h.01"/></svg>
+    <div><b>This is a demo placeholder for the SaaS operator's internal admin view</b> — not a customer-facing page, and not gated behind any real auth/permissions yet.</div>
+  </div>
+  <div id="pf-body"></div>
+</div>
+
+<script type="module">
+  import { db } from './lib/data.js';
+  db.init();
+  import('./modules/platform.js').then(m => m.renderPlatform());
+</script>
+</body>
+</html>

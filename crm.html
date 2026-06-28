@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AutoBook — CRM</title>
+<title>Torklio — CRM</title>
 <link rel="stylesheet" href="style.css">
 <style>
   /* page-scoped LAYOUT only — §C.2/C.3. CRM is a sub-app: shared icon-rail +
@@ -20,10 +20,31 @@
   .lead-card .lc-sub{font-size:var(--t-13);color:var(--ink-3)}
   .lead-card .lc-meta{display:flex;flex-wrap:wrap;gap:6px;margin:var(--s2) 0}
   .lead-card .lc-actions{display:flex;gap:var(--s2);margin-top:var(--s3)}
-  .cust-row{display:flex;justify-content:space-between;align-items:center;padding:var(--s3);border:1px solid var(--rule);border-radius:var(--r-md);margin-bottom:var(--s2);cursor:pointer;transition:border-color .15s}
+  .cust-row{display:flex;justify-content:space-between;align-items:center;padding:var(--s3);border:1px solid var(--rule);border-radius:var(--r-md);margin-bottom:var(--s2);cursor:pointer;transition:border-color .15s;gap:var(--s3)}
   .cust-row:hover{border-color:var(--accent-mid)}
   .tl-event{display:flex;gap:var(--s3);padding:var(--s3) 0;border-bottom:1px solid var(--rule)}
   .tl-event:last-child{border-bottom:none}
+
+  /* Pipeline board (§C "Customer Pipeline") — purpose-built layout, not the
+     stat-card dashboard grid. Horizontal-scrolling columns of compact cards. */
+  .pipeline-board{display:flex;gap:var(--s3);overflow-x:auto;padding-bottom:var(--s2)}
+  .pipeline-col{flex:0 0 220px;background:var(--canvas);border-radius:var(--r-md);padding:var(--s3);min-height:120px}
+  .pipeline-col-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--s3);padding-bottom:var(--s2);border-bottom:1px solid var(--rule)}
+  .pipeline-col-title{font-size:var(--t-13);font-weight:700;color:var(--ink)}
+  .pipeline-card{background:var(--surface);border:1px solid var(--rule);border-radius:var(--r-md);padding:var(--s3);margin-bottom:var(--s2);box-shadow:var(--shadow-sm,none)}
+  .pipeline-card:last-child{margin-bottom:0}
+  .pipeline-card .pc-name{font-weight:700;font-size:var(--t-13);color:var(--ink)}
+  .pipeline-card .pc-sub{font-size:var(--t-xs);color:var(--ink-3);margin-top:2px}
+
+  /* Reused from Marketing's banner/bar pattern — same component vocabulary. */
+  .crm-bar-track{height:6px;background:var(--canvas);border-radius:var(--r-full);overflow:hidden;margin-top:var(--s2)}
+  .crm-bar-fill{height:100%;background:var(--accent);border-radius:var(--r-full)}
+  .crm-bar-fill.amber{background:var(--amber)}
+  .crm-bar-fill.red{background:var(--red)}
+
+  .followup-row{display:flex;justify-content:space-between;align-items:center;padding:var(--s3) 0;border-bottom:1px solid var(--rule);gap:var(--s3)}
+  .followup-row:last-child{border-bottom:none}
+  .tag-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 </style>
 </head>
 <body>
@@ -49,8 +70,10 @@
     </header>
 
     <div class="page-body">
+      <div id="crm-banner" style="margin-bottom:var(--s4)"></div>
       <div class="seg crm-tabs" id="crm-tabs">
         <button data-view="dashboard">Dashboard</button>
+        <button data-view="pipeline">Pipeline</button>
         <button data-view="leads">Leads</button>
         <button data-view="customers">Customers</button>
       </div>

@@ -15,7 +15,7 @@ let nowServingIndex = 0;
 let queuePage = 0;
 
 export function renderWaitingRoom() {
-  document.getElementById('shop-name').textContent = db.settings().name || 'AutoBook';
+  document.getElementById('shop-name').textContent = db.settings().name || 'My Shop';
   startClock();
   render();
   setInterval(render, 20000); // §11.7: 20s localStorage-poll fallback for live data

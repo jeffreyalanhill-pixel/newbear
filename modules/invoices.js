@@ -101,7 +101,7 @@ function renderDrawer() {
     <div class="modal-body">
       <div class="inv-print-head">
         <div>
-          <div style="font-weight:800;font-size:var(--t-lg)">${settings.name || 'AutoBook Shop'}</div>
+          <div style="font-weight:800;font-size:var(--t-lg)">${settings.name || 'My Shop'}</div>
           <div class="muted" style="font-size:var(--t-13)">${settings.address || ''}</div>
           <div class="muted" style="font-size:var(--t-13)">${settings.phone || ''}</div>
         </div>

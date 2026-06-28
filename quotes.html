@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Torklio — Quotes</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* page-scoped LAYOUT only. Quotes is a sub-app: shared icon-rail + its own
+     secondary tab nav + hash-routed views (Dashboard, Builder, Templates).
+     Purpose-built layout per CLAUDE.md: same design language as CRM/Marketing,
+     different information architecture — an estimating workspace, not a
+     copied dashboard. */
+  .quote-tabs{margin-bottom:var(--s5)}
+  .quote-queue-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:var(--s3)}
+  @media(max-width:1100px){.quote-queue-grid{grid-template-columns:repeat(3,1fr)}}
+  @media(max-width:640px){.quote-queue-grid{grid-template-columns:repeat(2,1fr)}}
+  .queue-pill{border:1px solid var(--rule);border-radius:var(--r-md);padding:var(--s3);text-align:center;cursor:pointer;transition:border-color .15s}
+  .queue-pill:hover{border-color:var(--accent-mid)}
+  .queue-pill.active{border-color:var(--accent);background:var(--accent-lt)}
+  .queue-pill .qp-count{font-size:var(--t-2xl);font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+  .queue-pill .qp-label{font-size:var(--t-xs);color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
+
+  .quote-row{display:flex;justify-content:space-between;align-items:center;padding:var(--s3) var(--s4);border:1px solid var(--rule);border-radius:var(--r-md);margin-bottom:var(--s2);cursor:pointer;transition:border-color .15s;gap:var(--s3)}
+  .quote-row:hover{border-color:var(--accent-mid)}
+  .quote-row:last-child{margin-bottom:0}
+
+  .li-table{width:100%;border-collapse:collapse;margin-top:var(--s2)}
+  .li-table th{text-align:left;font-size:var(--t-xs);font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-4);padding:6px var(--s2);border-bottom:1px solid var(--rule)}
+  .li-table td{padding:6px var(--s2);border-bottom:1px solid var(--rule);font-size:var(--t-13);vertical-align:middle}
+  .li-table input,.li-table select{width:100%;padding:4px 6px;border:1px solid var(--rule);border-radius:6px;font-size:var(--t-13)}
+  .li-table .num{text-align:right;font-variant-numeric:tabular-nums}
+
+  .totals-box{margin-left:auto;max-width:280px;display:flex;flex-direction:column;gap:4px}
+  .totals-box .tr-row{display:flex;justify-content:space-between;font-size:var(--t-13);color:var(--ink-3)}
+  .totals-box .tr-row.grand{font-size:var(--t-lg);font-weight:800;color:var(--ink);border-top:1px solid var(--rule);padding-top:6px;margin-top:4px}
+
+  .stock-pill{font-size:10px;padding:2px 6px;border-radius:var(--r-full);font-weight:700;text-transform:uppercase}
+  .stock-pill.in{background:var(--green-lt);color:var(--green)}
+  .stock-pill.low{background:var(--amber-lt);color:var(--amber)}
+  .stock-pill.out{background:var(--red-lt);color:var(--red)}
+
+  .tpl-card{border:1px solid var(--rule);border-radius:var(--r-md);padding:var(--s4);display:flex;flex-direction:column;gap:6px}
+  .approval-card{border:1px solid var(--line);border-radius:var(--r-card);padding:var(--s5);background:var(--canvas)}
+  .crm-grid{display:grid;grid-template-columns:1fr 1.4fr;gap:var(--s4);align-items:start}
+  @media(max-width:1000px){.crm-grid{grid-template-columns:1fr}}
+  .followup-row{display:flex;justify-content:space-between;align-items:center;padding:var(--s3) 0;border-bottom:1px solid var(--rule);gap:var(--s3)}
+  .followup-row:last-child{border-bottom:none}
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <nav class="icon-rail" id="icon-rail"></nav>
+
+  <div class="main-col">
+    <header class="app-header">
+      <div>
+        <div class="greeting-title">Quotes</div>
+        <div class="greeting-sub">Build, send, and convert repair estimates.</div>
+      </div>
+      <div class="header-actions">
+        <button class="icon-btn" title="Notifications">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+        </button>
+        <div class="avatar" id="avatar">J</div>
+      </div>
+    </header>
+
+    <div class="page-body">
+      <div id="quote-banner" style="margin-bottom:var(--s4)"></div>
+      <div class="seg quote-tabs" id="quote-tabs">
+        <button data-view="dashboard">Dashboard</button>
+        <button data-view="builder">Builder</button>
+        <button data-view="templates">Templates</button>
+      </div>
+      <div id="quote-view-body"></div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="quote-overlay">
+  <div class="drawer" id="quote-drawer"></div>
+</div>
+
+<script type="module">
+  import { db } from './lib/data.js';
+  db.init();
+  import('./modules/quotes/quotes-app.js').then(m => m.renderQuotesApp());
+</script>
+</body>
+</html>

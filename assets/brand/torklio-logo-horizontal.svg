@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 220" role="img" aria-labelledby="title desc">
+  <title id="title">Torklio logo</title>
+  <desc id="desc">Torklio wordmark with the O styled as a gauge needle.</desc>
+  <defs>
+    <linearGradient id="torklioBlue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7DD3FC"/>
+      <stop offset="48%" stop-color="#1E88FF"/>
+      <stop offset="100%" stop-color="#2563EB"/>
+    </linearGradient>
+    <style>
+      .word { fill: #071A3D; font-family: Inter, Manrope, Sora, Arial, sans-serif; font-weight: 850; letter-spacing: -4px; }
+      .accent { fill: url(#torklioBlue); }
+      .navy { fill: #071A3D; }
+      .arc { fill: none; stroke: url(#torklioBlue); stroke-width: 18; stroke-linecap: butt; }
+      .needle { fill: url(#torklioBlue); }
+      .needle-core { fill: #FFFFFF; stroke: #1E88FF; stroke-width: 5; }
+    </style>
+  </defs>
+
+  <rect width="900" height="220" fill="none"/>
+
+  <!-- T -->
+  <text x="40" y="150" class="word" font-size="132">T</text>
+
+  <!-- Custom O gauge -->
+  <g transform="translate(210 110)">
+    <circle r="58" class="navy"/>
+    <circle r="32" fill="#FFFFFF"/>
+    <path class="arc" d="M -50 -62 A 78 78 0 0 1 58 -54"/>
+    <path class="needle" d="M -7 13 L 85 -80 L 21 27 Z"/>
+    <circle r="13" class="needle-core"/>
+  </g>
+
+  <!-- RKLIO text after custom O -->
+  <text x="300" y="150" class="word" font-size="132">RKLIO</text>
+</svg>

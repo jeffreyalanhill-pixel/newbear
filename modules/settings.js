@@ -6,7 +6,7 @@ import { db } from '../lib/data.js';
 import { util } from '../lib/util.js';
 import { renderNav, toast, confirmDialog } from '../lib/nav.js';
 
-const VIEWS = { shop: renderShop, services: renderServices, bays: renderBays, coupons: renderCoupons };
+const VIEWS = { shop: renderShop, services: renderServices, bays: renderBays, coupons: renderCoupons, subscription: renderSubscription };
 
 export function renderSettings() {
   renderNav('#icon-rail', 'settings.html');
@@ -287,4 +287,41 @@ function renderCouponsList() {
       renderCouponsList();
     });
   });
+}
+
+// ---------------------------------------------------------------------------
+// Phase E — read-only Subscription tab. Shows the demo shop's real platform
+// record (lib/data.js seeds `shop_demo`/`sub_demo`) — there is no real
+// Stripe billing or plan-change flow yet, so this is intentionally view-only
+// with a link out to the signup/pricing page for changing plans.
+function renderSubscription(mount) {
+  const shop = db.shopById('shop_demo');
+  const sub = shop ? db.subscriptionForShop(shop.id) : null;
+  const plan = sub ? db.planById(sub.planId) : null;
+
+  if (!shop || !sub || !plan) {
+    mount.innerHTML = '<div class="empty"><div class="empty-title">No subscription on file</div><div class="empty-sub">This demo shop hasn\'t been linked to a platform subscription.</div></div>';
+    return;
+  }
+
+  mount.innerHTML = `
+    <div class="card" style="margin-bottom:var(--s4)">
+      <div class="card-head"><div class="card-title">Current plan</div><span class="badge badge-blue">${sub.status}</span></div>
+      <div class="card-body">
+        <div class="row between" style="padding:6px 0"><span class="muted">Plan</span><span class="strong" style="color:var(--ink)">${plan.name}</span></div>
+        <div class="row between" style="padding:6px 0"><span class="muted">Billing cycle</span><span>${sub.billingCycle}</span></div>
+        <div class="row between" style="padding:6px 0"><span class="muted">Current period</span><span>${util.fmtDate(sub.currentPeriodStart)} – ${util.fmtDate(sub.currentPeriodEnd)}</span></div>
+        <div class="row between" style="padding:6px 0"><span class="muted">Seats included</span><span>${sub.seatsIncluded}</span></div>
+        <div class="row between" style="padding:6px 0"><span class="muted">Locations included</span><span>${sub.locationsIncluded}</span></div>
+        <div class="row between" style="padding:6px 0"><span class="muted">Billing status <span class="badge badge-gray" style="font-size:10px;margin-left:4px">placeholder</span></span><span class="badge badge-gray">no real Stripe billing yet</span></div>
+        <a href="signup.html" class="btn btn-secondary btn-sm" style="margin-top:var(--s3)">Change plan</a>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Feature access</div><span class="badge badge-gray">demo logic — not enforced elsewhere yet</span></div>
+      <div class="card-body">
+        ${Object.entries(plan.features).map(([key, on]) => `<div class="row between" style="padding:6px 0"><span>${key}</span><span class="badge ${on ? 'badge-green' : 'badge-gray'}">${on ? 'on' : 'off'}</span></div>`).join('')}
+      </div>
+    </div>
+  `;
 }

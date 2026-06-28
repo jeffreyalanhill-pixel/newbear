@@ -252,7 +252,7 @@ function showReceipt(sale) {
       <button class="icon-btn" data-close><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
     </div>
     <div class="modal-body">
-      <div style="font-weight:800">${settings.name || 'AutoBook Shop'}</div>
+      <div style="font-weight:800">${settings.name || 'My Shop'}</div>
       <div class="muted" style="font-size:var(--t-13);margin-bottom:var(--s3)">${util.fmtDateTime(sale.createdAt)}</div>
       ${sale.lineItems.map((l) => `<div class="row between" style="font-size:var(--t-13)"><span>${l.name}${l.qty > 1 ? ' × ' + l.qty : ''}</span><span class="tnum">${util.fmtMoney(l.total)}</span></div>`).join('')}
       <div class="pos-totals" style="margin-top:var(--s3)">

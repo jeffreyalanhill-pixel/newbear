@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Torklio — Plans &amp; Sign Up</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* page-scoped LAYOUT only — Phase E platform signup foundation. Public
+     page, no icon-rail/app-shell: same visual system as index.html's
+     marketing site, "more sales/onboarding oriented" per CLAUDE.md. */
+  .su-nav{display:flex;justify-content:space-between;align-items:center;padding:var(--s5) var(--s8);max-width:1200px;margin:0 auto}
+  .su-logo{display:flex;align-items:center;gap:var(--s2);font-weight:800;font-size:var(--t-lg);color:var(--ink)}
+  .su-hero{max-width:900px;margin:0 auto;padding:var(--s8) var(--s8) var(--s6);text-align:center}
+  .su-h1{font-size:var(--t-4xl);font-weight:900;letter-spacing:-.02em;line-height:1.1;margin-bottom:var(--s4)}
+  .su-sub{font-size:var(--t-md);color:var(--ink-3);max-width:640px;margin:0 auto}
+  .su-cycle-toggle{display:flex;justify-content:center;margin:var(--s6) 0}
+
+  .plan-grid{max-width:1200px;margin:0 auto;padding:0 var(--s8) var(--s10);display:grid;grid-template-columns:repeat(4,1fr);gap:var(--s4)}
+  @media(max-width:1000px){.plan-grid{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:640px){.plan-grid{grid-template-columns:1fr}}
+  .plan-card{border:1px solid var(--rule);border-radius:var(--r-panel);padding:var(--s5);display:flex;flex-direction:column;background:var(--surface)}
+  .plan-card.highlight{border-color:var(--accent);box-shadow:var(--shadow-pop);position:relative}
+  .plan-card.highlight::before{content:'Most Popular';position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:var(--accent);color:#fff;font-size:var(--t-xs);font-weight:700;padding:4px 12px;border-radius:var(--r-full)}
+  .plan-name{font-size:var(--t-lg);font-weight:800;color:var(--ink)}
+  .plan-tagline{font-size:var(--t-13);color:var(--ink-3);margin:6px 0 var(--s4);min-height:36px}
+  .plan-price{font-size:var(--t-3xl);font-weight:900;color:var(--ink);letter-spacing:-.02em}
+  .plan-price small{font-size:var(--t-base);font-weight:600;color:var(--ink-3)}
+  .plan-features{list-style:none;margin:var(--s4) 0;flex:1;display:flex;flex-direction:column;gap:8px}
+  .plan-features li{display:flex;align-items:center;gap:8px;font-size:var(--t-13);color:var(--ink-2)}
+  .plan-features li.off{color:var(--ink-4);text-decoration:line-through}
+  .plan-features svg{width:14px;height:14px;flex-shrink:0;color:var(--green)}
+  .plan-features li.off svg{color:var(--ink-4)}
+
+  .compare-table{max-width:1200px;margin:0 auto;padding:0 var(--s8) var(--s10)}
+  .compare-table table{width:100%;border-collapse:collapse}
+  .compare-table th,.compare-table td{padding:var(--s3);text-align:center;border-bottom:1px solid var(--rule);font-size:var(--t-13)}
+  .compare-table th:first-child,.compare-table td:first-child{text-align:left}
+  .compare-table th{font-weight:700;color:var(--ink)}
+  .compare-table svg{width:16px;height:16px;color:var(--green)}
+  .compare-table .no{color:var(--ink-4)}
+
+  .su-wizard{max-width:720px;margin:0 auto;padding:0 var(--s8) var(--s10)}
+  .wizard-steps{display:flex;justify-content:space-between;margin-bottom:var(--s6)}
+  .wizard-step{flex:1;text-align:center;font-size:var(--t-13);color:var(--ink-4);position:relative;padding-bottom:var(--s3);border-bottom:3px solid var(--rule)}
+  .wizard-step.active{color:var(--accent);border-color:var(--accent);font-weight:700}
+  .wizard-step.done{color:var(--ink-2);border-color:var(--green)}
+</style>
+</head>
+<body>
+<div class="su-nav">
+  <div class="su-logo">
+    <svg viewBox="0 0 256 256" width="28" height="28" aria-hidden="true">
+      <defs><linearGradient id="torklioBlueSu" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#7DD3FC"/><stop offset="50%" stop-color="#1E88FF"/><stop offset="100%" stop-color="#2563EB"/></linearGradient></defs>
+      <circle cx="128" cy="132" r="62" fill="#071A3D"/>
+      <circle cx="128" cy="132" r="34" fill="#FFFFFF"/>
+      <path d="M 67 72 A 92 92 0 0 1 197 81" fill="none" stroke="url(#torklioBlueSu)" stroke-width="18" stroke-linecap="butt"/>
+      <path d="M 120 144 L 205 59 L 143 158 Z" fill="url(#torklioBlueSu)"/>
+      <circle cx="128" cy="132" r="13" fill="#FFFFFF" stroke="#1E88FF" stroke-width="5"/>
+    </svg>
+    Torklio
+  </div>
+  <div class="row" style="gap:var(--s3)">
+    <a href="index.html" class="btn btn-secondary">Back to site</a>
+    <a href="dashboard.html" class="btn btn-secondary">Owner Login</a>
+  </div>
+</div>
+
+<div class="su-hero">
+  <div class="su-h1">Run your shop on one platform.</div>
+  <div class="su-sub">Booking, CRM, quotes, repair orders, invoicing, and a live shop floor — pick a plan, set up your shop, and get into your dashboard in a few minutes.</div>
+</div>
+
+<div id="su-pricing"></div>
+
+<div class="su-wizard" id="su-wizard"></div>
+
+<script type="module">
+  import { db } from './lib/data.js';
+  db.init();
+  import('./modules/signup.js').then(m => m.renderSignup());
+</script>
+</body>
+</html>

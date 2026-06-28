@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Torklio one-color app icon</title>
+  <desc id="desc">One-color simplified Torklio gauge icon.</desc>
+  <rect x="20" y="20" width="216" height="216" rx="48" fill="none"/>
+  <circle cx="128" cy="132" r="62" fill="#071A3D"/>
+  <circle cx="128" cy="132" r="34" fill="#FFFFFF"/>
+  <path d="M 67 72 A 92 92 0 0 1 197 81" fill="none" stroke="#071A3D" stroke-width="18" stroke-linecap="butt"/>
+  <path d="M 120 144 L 205 59 L 143 158 Z" fill="#071A3D"/>
+  <circle cx="128" cy="132" r="13" fill="#FFFFFF" stroke="#071A3D" stroke-width="5"/>
+</svg>
