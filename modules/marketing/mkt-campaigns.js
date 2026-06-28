@@ -1,53 +1,65 @@
-// AutoBook — modules/marketing/mkt-campaigns.js (§D, Phase 1)
-// Build a campaign from a segment + template + optional coupon, preview the
-// rendered merge-field copy, then send (util.sendCampaign logs a
-// Communication per recipient onto their CRM timeline).
+// AutoBook — modules/marketing/mkt-campaigns.js (§D)
+// Campaign builder (type, segment, subject/body, offer, schedule date) +
+// list. "Send Now" logs a Communication per recipient via util.sendCampaign
+// (real); scheduling a date just sets status/scheduledAt for display — there
+// is no real scheduler/sender running in the background in this MVP.
 
 import { db } from '../../lib/data.js';
 import { util } from '../../lib/util.js';
 import { toast, confirmDialog } from '../../lib/nav.js';
 
+const CAMPAIGN_TYPES = [
+  { value: 'email', label: 'Email' },
+  { value: 'sms', label: 'SMS' },
+  { value: 'postcard', label: 'Postcard' },
+  { value: 'review_request', label: 'Review Request' },
+  { value: 'reminder', label: 'Reminder' },
+  { value: 'promotion', label: 'Promotion' },
+];
+
+const STATUS_BADGE = { draft: 'badge-gray', scheduled: 'badge-amber', sent: 'badge-green', paused: 'badge-red' };
+
 export function renderCampaigns(mount) {
   const segments = db.segments();
-  const templates = db.templates();
   const coupons = (db.settings().coupons || []).filter((c) => c.active);
 
   mount.innerHTML = `
     <div class="card" style="margin-bottom:var(--s4)">
       <div class="card-head"><div class="card-title">New Campaign</div></div>
       <div class="card-body grid-2">
-        <div class="field"><label class="label">Name</label><input class="input" id="nc-name" placeholder="e.g. Spring Service Reminder"></div>
+        <div class="field"><label class="label">Campaign name</label><input class="input" id="nc-name" placeholder="e.g. Spring Service Reminder"></div>
         <div class="field">
-          <label class="label">Segment</label>
-          <select class="select" id="nc-segment">${segments.map((s) => `<option value="${s.id}">${s.name}</option>`).join('')}</select>
+          <label class="label">Type</label>
+          <select class="select" id="nc-type">${CAMPAIGN_TYPES.map((t) => `<option value="${t.value}">${t.label}</option>`).join('')}</select>
         </div>
-        <div class="field">
-          <label class="label">Template</label>
-          <select class="select" id="nc-template">${templates.map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select>
+        <div class="field" style="grid-column:1/-1">
+          <label class="label">Customer segment</label>
+          <select class="select" id="nc-segment">${segments.map((s) => `<option value="${s.id}">${s.name} (${db.segmentMembers(s.id).length})</option>`).join('')}</select>
         </div>
+        <div class="field" style="grid-column:1/-1"><label class="label">Subject / title</label><input class="input" id="nc-subject" placeholder="e.g. Time for an oil change, {{firstName}}?"></div>
+        <div class="field" style="grid-column:1/-1"><label class="label">Message</label><textarea class="textarea" id="nc-body" placeholder="Hi {{firstName}}, ..."></textarea></div>
         <div class="field">
-          <label class="label">Coupon (optional)</label>
-          <select class="select" id="nc-coupon">
-            <option value="">No coupon</option>
+          <label class="label">Offer / coupon (optional)</label>
+          <select class="select" id="nc-offer">
+            <option value="">No offer</option>
             ${coupons.map((c) => `<option value="${c.code}">${c.code}</option>`).join('')}
           </select>
         </div>
+        <div class="field"><label class="label">Schedule date (optional)</label><input class="input" type="date" id="nc-schedule"></div>
         <div style="grid-column:1/-1">
           <div class="muted" style="font-size:var(--t-13);margin-bottom:var(--s2)">Preview (merge fields resolved for the first matching customer):</div>
           <div class="card navy" style="padding:var(--s4)" id="nc-preview">
-            <div class="empty-sub" style="color:var(--panel-txt)">Select a segment and template to preview.</div>
+            <div class="empty-sub" style="color:var(--panel-txt)">Select a segment and enter a message to preview.</div>
           </div>
         </div>
-        <div style="grid-column:1/-1"><button class="btn btn-primary" id="add-campaign-btn">Create Campaign</button></div>
+        <div style="grid-column:1/-1"><button class="btn btn-primary" id="add-campaign-btn">Save as Draft</button></div>
       </div>
     </div>
     <div class="card"><div class="card-head"><div class="card-title">Campaigns</div></div><div class="card-body" id="campaigns-list"></div></div>
   `;
 
   const updatePreview = () => renderPreview();
-  document.getElementById('nc-segment').addEventListener('change', updatePreview);
-  document.getElementById('nc-template').addEventListener('change', updatePreview);
-  document.getElementById('nc-coupon').addEventListener('change', updatePreview);
+  ['nc-segment', 'nc-subject', 'nc-body', 'nc-offer'].forEach((id) => document.getElementById(id).addEventListener('input', updatePreview));
   document.getElementById('add-campaign-btn').addEventListener('click', addCampaign);
   updatePreview();
   renderList();
@@ -55,23 +67,26 @@ export function renderCampaigns(mount) {
 
 function renderPreview() {
   const segmentId = document.getElementById('nc-segment').value;
-  const templateId = document.getElementById('nc-template').value;
-  const couponCode = document.getElementById('nc-coupon').value;
+  const subject = document.getElementById('nc-subject').value;
+  const body = document.getElementById('nc-body').value;
+  const offer = document.getElementById('nc-offer').value;
   const previewEl = document.getElementById('nc-preview');
-  if (!segmentId || !templateId) return;
+  if (!segmentId || (!subject && !body)) {
+    previewEl.innerHTML = '<div class="empty-sub" style="color:var(--panel-txt)">Select a segment and enter a message to preview.</div>';
+    return;
+  }
 
   const audience = util.previewAudience(segmentId);
-  const template = db.templateById(templateId);
   if (!audience.length) {
     previewEl.innerHTML = '<div class="empty-sub" style="color:var(--panel-txt)">No contactable customers in this segment yet.</div>';
     return;
   }
   const sample = audience[0];
   const vehicle = db.vehiclesForCustomer(sample.id)[0];
-  const vars = { firstName: sample.firstName, lastName: sample.lastName, vehicleMake: vehicle?.make || 'vehicle', vehicleModel: vehicle?.model || '', couponCode };
+  const vars = { firstName: sample.firstName, lastName: sample.lastName, vehicleMake: vehicle?.make || 'vehicle', vehicleModel: vehicle?.model || '', couponCode: offer };
   previewEl.innerHTML = `
-    <div style="font-weight:700;color:#fff;margin-bottom:6px">${util.renderTemplate(template.subject, vars)}</div>
-    <div style="color:var(--panel-txt);font-size:var(--t-13)">${util.renderTemplate(template.body, vars)}</div>
+    <div style="font-weight:700;color:#fff;margin-bottom:6px">${util.renderTemplate(subject, vars)}</div>
+    <div style="color:var(--panel-txt);font-size:var(--t-13)">${util.renderTemplate(body, vars)}</div>
     <div style="color:var(--panel-txt);font-size:var(--t-xs);margin-top:var(--s2)">Previewing for ${util.customerName(sample)} · ${audience.length} recipient${audience.length === 1 ? '' : 's'} total</div>
   `;
 }
@@ -79,47 +94,61 @@ function renderPreview() {
 function addCampaign() {
   const name = document.getElementById('nc-name').value.trim();
   const segmentId = document.getElementById('nc-segment').value;
-  const templateId = document.getElementById('nc-template').value;
-  if (!name || !segmentId || !templateId) {
-    toast('Name, segment, and template are all required.', 'error');
+  const subject = document.getElementById('nc-subject').value.trim();
+  const body = document.getElementById('nc-body').value.trim();
+  if (!name || !segmentId || !subject || !body) {
+    toast('Name, segment, subject, and message are all required.', 'error');
     return;
   }
+  const scheduleDate = document.getElementById('nc-schedule').value;
   const campaigns = db.campaigns();
   campaigns.push({
     id: db.nextId('camp'),
     name,
+    type: document.getElementById('nc-type').value,
+    status: scheduleDate ? 'scheduled' : 'draft',
     segmentId,
-    templateId,
-    couponCode: document.getElementById('nc-coupon').value || '',
-    status: 'draft',
-    createdAt: new Date().toISOString(),
+    subject,
+    body,
+    offer: document.getElementById('nc-offer').value || '',
+    scheduledAt: scheduleDate ? new Date(scheduleDate + 'T09:00:00').toISOString() : null,
     sentAt: null,
     metrics: {},
   });
   db.saveCampaigns(campaigns);
-  toast('Campaign created as a draft.', 'success');
-  document.getElementById('nc-name').value = '';
+  toast(scheduleDate ? 'Campaign scheduled.' : 'Campaign saved as a draft.', 'success');
+  ['nc-name', 'nc-subject', 'nc-body', 'nc-schedule'].forEach((id) => (document.getElementById(id).value = ''));
+  renderPreview();
   renderList();
 }
 
 function renderList() {
   const campaigns = db.campaigns().slice().reverse();
   document.getElementById('campaigns-list').innerHTML = campaigns.length
-    ? campaigns.map((c) => {
-        const segment = db.segmentById(c.segmentId);
-        const template = db.templateById(c.templateId);
-        return `
-        <div class="camp-card" data-campaign-id="${c.id}">
-          <div class="row between">
-            <div>
-              <div class="strong" style="color:var(--ink)">${c.name}</div>
-              <div class="muted" style="font-size:var(--t-13)">${segment?.name || ''} · ${template?.name || ''}${c.couponCode ? ' · ' + c.couponCode : ''}</div>
-            </div>
-            <span class="badge ${c.status === 'sent' ? 'badge-green' : 'badge-gray'}">${c.status}${c.status === 'sent' ? ' · ' + (c.metrics?.sent || 0) + ' sent' : ''}</span>
-          </div>
-          ${c.status === 'draft' ? `<div style="margin-top:var(--s3)"><button class="btn btn-primary btn-sm" data-send="${c.id}">Send Campaign</button></div>` : ''}
-        </div>`;
-      }).join('')
+    ? `<table class="table">
+        <thead><tr><th>Campaign</th><th>Type</th><th>Segment</th><th>Status</th><th class="num">Sent</th><th class="num">Opened</th><th class="num">Booked</th><th></th></tr></thead>
+        <tbody>
+          ${campaigns.map((c) => {
+            const segment = db.segmentById(c.segmentId);
+            const m = c.metrics || {};
+            return `
+            <tr>
+              <td class="strong">${c.name}</td>
+              <td>${(c.type || '').replace('_', ' ')}</td>
+              <td>${segment?.name || '—'}</td>
+              <td><span class="badge ${STATUS_BADGE[c.status] || 'badge-gray'}">${c.status}</span></td>
+              <td class="num tnum">${m.sent ?? '—'}</td>
+              <td class="num tnum">${m.opened ?? '—'}</td>
+              <td class="num tnum">${m.booked ?? '—'}</td>
+              <td>
+                ${c.status === 'draft' || c.status === 'scheduled' ? `<button class="btn btn-primary btn-sm" data-send="${c.id}">Send Now</button>` : ''}
+                ${c.status === 'scheduled' ? `<button class="btn btn-secondary btn-sm" data-pause="${c.id}">Pause</button>` : ''}
+                ${c.status === 'paused' ? `<button class="btn btn-secondary btn-sm" data-resume="${c.id}">Resume</button>` : ''}
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`
     : '<div class="empty"><div class="empty-title">No campaigns yet</div><div class="empty-sub">Create one above.</div></div>';
 
   document.querySelectorAll('[data-send]').forEach((btn) => {
@@ -135,4 +164,19 @@ function renderList() {
       }
     });
   });
+  document.querySelectorAll('[data-pause]').forEach((btn) => {
+    btn.addEventListener('click', () => setStatus(btn.dataset.pause, 'paused', 'Campaign paused.'));
+  });
+  document.querySelectorAll('[data-resume]').forEach((btn) => {
+    btn.addEventListener('click', () => setStatus(btn.dataset.resume, 'scheduled', 'Campaign resumed.'));
+  });
+}
+
+function setStatus(campaignId, status, message) {
+  const campaigns = db.campaigns();
+  const c = campaigns.find((x) => x.id === campaignId);
+  c.status = status;
+  db.saveCampaigns(campaigns);
+  toast(message);
+  renderList();
 }

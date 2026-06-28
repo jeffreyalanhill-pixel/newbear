@@ -1,17 +1,20 @@
 // AutoBook — modules/marketing/mkt-app.js
 // Marketing sub-app shell: shared icon-rail + hash-routed secondary views.
-// Phase 1 scope (§D, build order step 12): Dashboard, Segments, Campaigns.
+// Scope: Dashboard, Segments, Campaigns, Automations (foundation step — see
+// each module's header comment for what's real vs. placeholder).
 
 import { db } from '../../lib/data.js';
 import { renderNav } from '../../lib/nav.js';
 import { renderMktDashboard } from './mkt-dashboard.js';
 import { renderSegments } from './segments.js';
 import { renderCampaigns } from './mkt-campaigns.js';
+import { renderAutomations } from './mkt-automations.js';
 
 const VIEWS = {
   dashboard: renderMktDashboard,
   segments: renderSegments,
   campaigns: renderCampaigns,
+  automations: renderAutomations,
 };
 
 export function renderMarketing() {
