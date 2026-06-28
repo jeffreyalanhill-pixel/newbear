@@ -24,9 +24,12 @@
   .queue-top{display:flex;align-items:center;gap:var(--s2);margin-bottom:var(--s2)}
   .queue-name{font-weight:700;color:#fff;font-size:var(--t-md)}
   .queue-sub{color:var(--panel-txt);font-size:var(--t-13)}
+  .queue-col #queue-list.drag-over{outline:2px dashed var(--accent);outline-offset:4px;border-radius:var(--r-md)}
   .bay-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:var(--s4)}
   .bay-card{background:var(--panel-2);border:2px solid var(--panel-rule);border-radius:var(--r-card);padding:var(--s5);min-height:200px;transition:border-color .15s}
   .bay-card.drag-over{border-color:var(--accent)}
+  .bay-job-card{cursor:grab}
+  .bay-job-card.dragging{opacity:.4}
   .bay-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--s4)}
   .bay-name{color:#fff;font-size:var(--t-xl);font-weight:800}
   .bay-tech{color:var(--panel-txt);font-size:var(--t-13);font-weight:600}
