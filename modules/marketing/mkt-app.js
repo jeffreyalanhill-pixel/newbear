@@ -12,6 +12,9 @@ import { renderMktDashboard } from './mkt-dashboard.js';
 import { renderSegments } from './segments.js';
 import { renderCampaigns } from './mkt-campaigns.js';
 import { renderAutomations } from './mkt-automations.js';
+import * as workflow from '../../lib/workflow.js';
+
+workflow.ensureSeeded();
 
 const VIEWS = {
   dashboard: renderMktDashboard,

@@ -47,7 +47,7 @@ function addSegment() {
 // The canonical set this step asked for, in order. Cards render only for
 // segments that actually exist in db.segments() — if seed data changes,
 // this stays in sync rather than hardcoding counts.
-const CANONICAL_IDS = ['seg_new', 'seg_returning', 'seg_inactive', 'seg_due_oil', 'seg_due_tire', 'seg_declined', 'seg_high_value', 'seg_fleet', 'seg_upcoming', 'seg_missing_contact'];
+const CANONICAL_IDS = ['seg_new', 'seg_returning', 'seg_inactive', 'seg_due_oil', 'seg_due_tire', 'seg_declined', 'seg_high_value', 'seg_fleet', 'seg_upcoming', 'seg_missing_contact', 'seg_no_show', 'seg_unpaid'];
 
 function renderCards() {
   const el = document.getElementById('segment-cards');

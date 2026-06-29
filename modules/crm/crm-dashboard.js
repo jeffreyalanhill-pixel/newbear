@@ -1,11 +1,14 @@
 // AutoBook — modules/crm/crm-dashboard.js (§C, CRM redesign)
-// CRM home: stat row (high-value, declined-services, due-for-service) + a
-// Follow-Up Center (real candidates, placeholder actions — no auto-send
-// engine exists yet, same caveat as Marketing's automations) + a global
-// activity timeline merged across all customers.
+// Owner/Manager Command Center: stat rows (high-value, declined-work value,
+// due-for-service, unassigned/stale leads, overdue follow-ups, pipeline
+// value) + Follow-Up Center (real candidates, now opens the real Outreach
+// panel) + team performance table + a global activity timeline merged
+// across all customers. Only rendered for manager-tier roles — see
+// crm-app.js's isManagerView().
 import { db } from '../../lib/data.js';
 import { util } from '../../lib/util.js';
-import { toast } from '../../lib/nav.js';
+import * as workflow from '../../lib/workflow.js';
+import { openOutreachPanel } from './outreach.js';
 
 export function renderCrmDashboard(mount) {
   const leads = db.leads();
@@ -13,8 +16,15 @@ export function renderCrmDashboard(mount) {
   leads.forEach((l) => { bySource[l.source] = (bySource[l.source] || 0) + 1; });
 
   const highValue = db.segmentMembers('seg_high_value').length;
-  const declined = db.segmentMembers('seg_declined').length;
+  const declinedCustomers = db.segmentMembers('seg_declined');
+  const declinedValue = workflow.getDeclinedWorkCandidates().reduce((s, d) => s + d.declinedValue, 0);
   const dueService = new Set([...db.segmentMembers('seg_due_oil'), ...db.segmentMembers('seg_due_tire')].map((c) => c.id)).size;
+  const unassigned = workflow.unassignedLeads();
+  const stale = workflow.staleLeads();
+  const overdue = workflow.overdueFollowUpTasks();
+  const pendingQuotes = db.quotes().filter((q) => ['sent', 'viewed', 'partially_approved'].includes(q.status));
+  const pipelineValue = pendingQuotes.reduce((s, q) => s + (q.total || 0), 0);
+  const team = workflow.crmTeamMetrics();
 
   mount.innerHTML = `
     <div class="grid-3" style="margin-bottom:var(--s4)">
@@ -24,14 +34,31 @@ export function renderCrmDashboard(mount) {
         <div class="stat-sub">$400+ lifetime invoiced — documented MVP cutoff</div>
       </div>
       <div class="stat-card">
-        <div class="stat-head"><span class="stat-icon red">${iconAlert()}</span><span class="stat-label">Declined-Service Follow-ups</span></div>
-        <div class="stat-value">${declined}</div>
-        <div class="stat-sub">customers with a declined repair order</div>
+        <div class="stat-head"><span class="stat-icon red">${iconAlert()}</span><span class="stat-label">Declined Work</span></div>
+        <div class="stat-value tnum">${util.fmtMoney0(declinedValue)}</div>
+        <div class="stat-sub">${declinedCustomers.length} customer${declinedCustomers.length === 1 ? '' : 's'} with declined work</div>
       </div>
       <div class="stat-card">
         <div class="stat-head"><span class="stat-icon amber">${iconWrench()}</span><span class="stat-label">Due for Service</span></div>
         <div class="stat-value">${dueService}</div>
         <div class="stat-sub">oil change or tire rotation overdue</div>
+      </div>
+    </div>
+    <div class="grid-3" style="margin-bottom:var(--s4)">
+      <div class="stat-card">
+        <div class="stat-head"><span class="stat-icon ${unassigned.length ? 'amber' : 'green'}">${iconUsers()}</span><span class="stat-label">Unassigned Leads</span></div>
+        <div class="stat-value">${unassigned.length}</div>
+        <div class="stat-sub">${stale.length} stale lead${stale.length === 1 ? '' : 's'} (no contact in 7+ days)</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-head"><span class="stat-icon ${overdue.length ? 'red' : 'green'}">${iconClock()}</span><span class="stat-label">Overdue Follow-ups</span></div>
+        <div class="stat-value">${overdue.length}</div>
+        <div class="stat-sub">across the whole team</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-head"><span class="stat-icon blue">${iconTrend()}</span><span class="stat-label">Pipeline Value</span></div>
+        <div class="stat-value tnum">${util.fmtMoney0(pipelineValue)}</div>
+        <div class="stat-sub">${pendingQuotes.length} quote${pendingQuotes.length === 1 ? '' : 's'} waiting approval</div>
       </div>
     </div>
 
@@ -51,6 +78,30 @@ export function renderCrmDashboard(mount) {
               </div>`).join('')
             : '<div class="empty-sub">No leads yet.</div>'}
         </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:var(--s4)">
+      <div class="card-head"><div class="card-title">Team performance</div></div>
+      <div class="card-body" style="overflow-x:auto">
+        <table class="table">
+          <thead><tr><th>Employee</th><th>Role</th><th class="num">Leads</th><th class="num">Contacted</th><th class="num">Overdue</th><th class="num">Quotes Sent</th><th class="num">Approval Rate</th><th class="num">Won Value</th><th class="num">Pipeline</th><th>Status</th></tr></thead>
+          <tbody>
+            ${team.length ? team.map((row) => `
+              <tr>
+                <td class="strong">${row.employee.firstName} ${row.employee.lastName}</td>
+                <td>${db.roleById(row.employee.role)?.name || row.employee.role}</td>
+                <td class="num">${row.assignedLeads}</td>
+                <td class="num">${row.contactedLeads}</td>
+                <td class="num">${row.overdueFollowUps}</td>
+                <td class="num">${row.quotesSent}</td>
+                <td class="num">${row.approvalRate}%</td>
+                <td class="num">${util.fmtMoney0(row.wonValue)}</td>
+                <td class="num">${util.fmtMoney0(row.pipelineValue)}</td>
+                <td><span class="badge ${row.statusBadge}">${row.overdueFollowUps > 2 ? 'Behind' : row.overdueFollowUps > 0 ? 'Watch' : 'On track'}</span></td>
+              </tr>`).join('') : `<tr><td colspan="10"><div class="empty-sub">No sales-role employees on file.</div></td></tr>`}
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -91,8 +142,9 @@ function renderActivity() {
 }
 
 // Real candidates (leads due for follow-up, declined-service / inactive /
-// due-for-service customers); the action buttons are placeholders — clicking
-// just confirms intent, since no email/SMS sending pipeline exists for CRM yet.
+// due-for-service customers). Quote rows still send the manager to the
+// Quotes page (acting on a quote belongs there); everything else opens the
+// real Outreach panel (email/text preview, call task, campaign enrollment).
 function renderFollowUps() {
   const leads = db.leads();
   const dueLeads = leads.filter((l) => l.nextFollowUpAt && new Date(l.nextFollowUpAt) <= new Date() && !['converted', 'lost'].includes(l.status));
@@ -103,15 +155,15 @@ function renderFollowUps() {
   const quoteFollowUps = util.quotesNeedingFollowUp().slice(0, 3).map((q) => ({
     name: `${util.customerName(db.customerById(q.customerId))} — ${q.quoteNumber}`,
     reason: q.status === 'declined' ? 'Quote declined — win-back opportunity' : `Quote waiting approval (${util.quoteStatusMeta(q.status).label.toLowerCase()})`,
-    action: 'Open quote',
+    action: 'Open quote', href: 'quotes.html',
   }));
 
   const rows = [
-    ...dueLeads.map((l) => ({ name: `${l.firstName} ${l.lastName}`, reason: 'Call customer — follow-up due', action: 'Call' })),
+    ...dueLeads.map((l) => ({ name: `${l.firstName} ${l.lastName}`, reason: 'Call customer — follow-up due', action: 'Outreach', lead: l })),
     ...quoteFollowUps,
-    ...declinedCustomers.map((c) => ({ name: util.customerName(c), reason: 'Declined-service follow-up', action: 'Send reminder' })),
-    ...dueServiceCustomers.map((c) => ({ name: util.customerName(c), reason: 'Maintenance reminder due', action: 'Send reminder' })),
-    ...inactiveCustomers.map((c) => ({ name: util.customerName(c), reason: 'Win back inactive customer', action: 'Reach out' })),
+    ...declinedCustomers.map((c) => ({ name: util.customerName(c), reason: 'Declined-service follow-up', action: 'Outreach', customer: c })),
+    ...dueServiceCustomers.map((c) => ({ name: util.customerName(c), reason: 'Maintenance reminder due', action: 'Outreach', customer: c })),
+    ...inactiveCustomers.map((c) => ({ name: util.customerName(c), reason: 'Win back inactive customer', action: 'Outreach', customer: c })),
   ];
 
   document.getElementById('followup-list').innerHTML = rows.length
@@ -121,12 +173,15 @@ function renderFollowUps() {
           <div class="strong" style="color:var(--ink)">${r.name}</div>
           <div class="muted" style="font-size:var(--t-13)">${r.reason}</div>
         </div>
-        <button class="btn btn-secondary btn-sm" data-followup="${i}" data-action="${r.action}">${r.action}</button>
+        ${r.href ? `<a class="btn btn-secondary btn-sm" href="${r.href}">${r.action}</a>` : `<button class="btn btn-secondary btn-sm" data-followup="${i}">${r.action}</button>`}
       </div>`).join('')
     : '<div class="empty-sub">Nothing due right now.</div>';
 
   document.querySelectorAll('[data-followup]').forEach((btn) => {
-    btn.addEventListener('click', () => toast(`"${btn.dataset.action}" recorded as a placeholder — no real send pipeline yet.`));
+    btn.addEventListener('click', () => {
+      const row = rows[Number(btn.dataset.followup)];
+      openOutreachPanel(row.lead ? { lead: row.lead } : { customer: row.customer });
+    });
   });
 }
 
@@ -137,3 +192,6 @@ function sourceLabel(s) {
 function iconStar() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>'; }
 function iconAlert() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.7 3.9a2 2 0 00-3.4 0zM12 9v4M12 17h.01"/></svg>'; }
 function iconWrench() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>'; }
+function iconUsers() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>'; }
+function iconClock() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>'; }
+function iconTrend() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/></svg>'; }

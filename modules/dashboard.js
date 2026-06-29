@@ -160,6 +160,8 @@ function kanbanCard(job) {
   const mk = util.makeBadge(v?.make);
   const chips = [];
   if (bay) chips.push(`<span class="badge badge-blue">${bay.name}${tech ? ' • ' + tech.firstName : ''}</span>`);
+  else if (tech) chips.push(`<span class="badge badge-blue">${tech.firstName}</span>`);
+  else if (['waiting', 'in_progress'].includes(job.status)) chips.push(`<span class="badge badge-amber">Unassigned</span>`);
   if (job.holdReason === 'parts_ordered') chips.push(`<span class="badge badge-amber">Parts</span>`);
   if (job.status === 'ready') {
     const mins = job.completedAt ? Math.round((Date.now() - new Date(job.completedAt).getTime()) / 60000) : 0;
@@ -175,9 +177,9 @@ function kanbanCard(job) {
     <div class="kan-card" draggable="true" data-job-id="${job.id}">
       <div class="kan-top">
         <span class="make-badge" style="background:${mk.bg};color:${mk.txt}">${mk.letter}</span>
-        <span class="kan-name">${util.vehicleLabel(v)}</span>
+        <span class="kan-name">${util.vehicleLabel(v) || 'Vehicle not assigned'}</span>
       </div>
-      <div class="kan-sub">${util.customerName(c)} · ${job.lineItems?.[0]?.name || ''}</div>
+      <div class="kan-sub">${util.customerName(c) || 'Customer not assigned'} · ${job.lineItems?.[0]?.name || 'No service listed'}</div>
       <div class="kan-meta">${chips.join('')}</div>
     </div>`;
 }
@@ -265,13 +267,14 @@ function renderSchedule() {
         const v = db.vehicleById(j.vehicleId);
         const tech = db.techById(j.techId);
         const bay = db.bayById(j.bayId);
+        const assignment = [bay?.name, tech?.firstName].filter(Boolean).join(' • ') || 'Unassigned';
         return `
         <tr>
           <td><span class="row"><span class="dot ${dotByStatus[j.status] || 'dot-blue'}"></span>${util.fmtTime(j.scheduledTime)}</span></td>
-          <td class="strong">${j.ro} · ${util.customerName(c)}</td>
-          <td>${util.vehicleLabel(v)}</td>
-          <td>${j.lineItems?.[0]?.name || ''}</td>
-          <td>${bay ? bay.name : '—'}${tech ? ' • ' + tech.firstName : ''}</td>
+          <td class="strong">${j.ro} · ${util.customerName(c) || 'Customer not assigned'}</td>
+          <td>${util.vehicleLabel(v) || 'Vehicle not assigned'}</td>
+          <td>${j.lineItems?.[0]?.name || 'No service listed'}</td>
+          <td>${assignment}</td>
         </tr>`;
       }).join('')
     : `<tr><td colspan="5"><div class="empty"><div class="empty-title">Nothing scheduled</div><div class="empty-sub">Today's board is clear.</div></div></td></tr>`;
@@ -291,14 +294,17 @@ function renderTomorrow() {
   `;
 }
 
+// Compact period summary only — "Outstanding" and "Billed Hrs" used to
+// repeat here too, but both pull from util.computeKPIs() which is always
+// today-only, so they never actually changed with the period toggle and
+// were a pure (and slightly misleading) duplicate of the top hero. Collected/
+// Invoiced/ARO/Invoice Count below are genuinely period-scoped (the toggle
+// changes them), so they stay — this panel now only shows what the hero doesn't.
 function renderOverview(period) {
   const stats = util.periodStats(period);
-  const k = util.computeKPIs();
   document.getElementById('overview-rows').innerHTML = `
     <div class="ov-row"><span class="ov-l">Collected</span><span class="ov-v green tnum">${util.fmtMoney0(stats.collected)}</span></div>
     <div class="ov-row"><span class="ov-l">Invoiced</span><span class="ov-v tnum">${util.fmtMoney0(stats.invoiced)}</span></div>
-    <div class="ov-row"><span class="ov-l">Outstanding</span><span class="ov-v red tnum">${util.fmtMoney0(k.outstanding)}</span></div>
-    <div class="ov-row"><span class="ov-l">Billed Hrs</span><span class="ov-v tnum">${k.billed.toFixed(1)} / ${k.capacity}</span></div>
     <div class="ov-row"><span class="ov-l">ARO</span><span class="ov-v tnum">${util.fmtMoney0(stats.aro)}</span></div>
     <div class="ov-row" style="border-bottom:none"><span class="ov-l">Invoice Count</span><span class="ov-v">${stats.count}</span></div>
   `;
@@ -326,7 +332,7 @@ function renderTeamPulse() {
 }
 
 function renderAiCoaching() {
-  const insights = util.coachingInsights();
+  const insights = util.coachingInsights().slice(0, 3); // right panel stays scannable — 2-3 max
   document.getElementById('ai-coaching').innerHTML = insights.length
     ? insights.map((i) => `
       <div class="insight">
@@ -353,6 +359,6 @@ function renderGauge() {
       </svg>
       <div class="gauge-val" style="margin-top:-28px">${pct}%</div>
       <div class="gauge-cap">${u.bookedHours.toFixed(1)} / ${u.capacity} hrs</div>
-      <div class="gauge-cap">Billed Hours vs Capacity</div>
+      <div class="gauge-cap">Booked Hours vs Capacity</div>
     </div>`;
 }

@@ -58,7 +58,6 @@ export function renderMktDashboard(mount) {
     <div class="card" style="margin-bottom:var(--s4)">
       <div class="card-head">
         <div class="card-title">${iconTrend()} Campaign Performance</div>
-        <span class="badge badge-gray">opened/clicked/revenue are placeholders</span>
       </div>
       <div class="card-body">
         <div class="grid-3">
@@ -68,15 +67,19 @@ export function renderMktDashboard(mount) {
             <div class="muted" style="font-size:var(--t-13)">real — recipient count at send time</div>
           </div>
           <div>
-            <div class="muted" style="font-size:var(--t-13)">Open / Click Rate <span class="badge badge-gray" style="font-size:10px">placeholder</span></div>
+            <div class="muted" style="font-size:var(--t-13)">Open / Click Rate</div>
             <div class="stat-value tnum" style="font-size:var(--t-2xl)">${openRate}% <small style="font-size:var(--t-md);color:var(--ink-3)">/ ${clickRate}%</small></div>
             <div class="muted" style="font-size:var(--t-13)">simulated — no real email/SMS sending yet</div>
           </div>
           <div>
-            <div class="muted" style="font-size:var(--t-13)">Booked / Revenue Influenced <span class="badge badge-gray" style="font-size:10px">placeholder</span></div>
+            <div class="muted" style="font-size:var(--t-13)">Booked / Revenue Influenced</div>
             <div class="stat-value tnum" style="font-size:var(--t-2xl)">${totalBooked} <small style="font-size:var(--t-md);color:var(--ink-3)">/ ${util.fmtMoney0(totalRevenue)}</small></div>
             <div class="muted" style="font-size:var(--t-13)">simulated — not tied to real attribution</div>
           </div>
+        </div>
+        <div class="row" style="gap:6px;margin-top:var(--s3);padding-top:var(--s3);border-top:1px solid var(--rule)">
+          <span class="dot" style="background:var(--ink-4)"></span>
+          <span class="muted" style="font-size:var(--t-xs)">Open/click rate and revenue figures are simulated — no real email/SMS sending exists yet.</span>
         </div>
       </div>
     </div>
@@ -88,12 +91,12 @@ export function renderMktDashboard(mount) {
         <div class="stat-sub">enabled — see the Automations tab</div>
       </div>
       <div class="stat-card">
-        <div class="stat-head"><span class="stat-icon blue">${iconMail()}</span><span class="stat-label">Engagement <span class="badge badge-gray" style="margin-left:4px;font-size:10px">placeholder</span></span></div>
+        <div class="stat-head"><span class="stat-icon blue">${iconMail()}</span><span class="stat-label">Engagement</span></div>
         <div class="stat-value">${openRate}<small style="font-size:var(--t-md)">% open</small></div>
         <div class="stat-sub">${clickRate}% click · simulated, no real email/SMS sending yet</div>
       </div>
       <div class="stat-card">
-        <div class="stat-head"><span class="stat-icon green">${iconTrend()}</span><span class="stat-label">Revenue Influenced <span class="badge badge-gray" style="margin-left:4px;font-size:10px">placeholder</span></span></div>
+        <div class="stat-head"><span class="stat-icon green">${iconTrend()}</span><span class="stat-label">Revenue Influenced</span></div>
         <div class="stat-value tnum">${util.fmtMoney0(totalRevenue)}</div>
         <div class="stat-sub">Simulated metric — not tied to real attribution yet</div>
       </div>
@@ -104,11 +107,14 @@ export function renderMktDashboard(mount) {
         <div class="card-head"><div class="card-title">Top customer segments</div></div>
         <div class="card-body">
           ${topSegments.length
-            ? topSegments.map((t) => `
+            ? topSegments.map((t) => {
+                const color = segmentColor(t.segment.id);
+                return `
               <div style="padding:var(--s2) 0;border-bottom:1px solid var(--rule)">
-                <div class="row between"><span>${t.segment.name}</span><span class="badge badge-blue">${t.count}</span></div>
-                <div class="mkt-bar-track"><div class="mkt-bar-fill" style="width:${(t.count / maxSegCount) * 100}%"></div></div>
-              </div>`).join('')
+                <div class="row between"><span>${t.segment.name}</span><span class="badge badge-${color}">${t.count}</span></div>
+                <div class="mkt-bar-track"><div class="mkt-bar-fill ${color}" style="width:${(t.count / maxSegCount) * 100}%"></div></div>
+              </div>`;
+              }).join('')
             : '<div class="empty-sub">No segments yet.</div>'}
         </div>
       </div>
@@ -120,7 +126,7 @@ export function renderMktDashboard(mount) {
               <div class="suggestion-row">
                 <div>
                   <div class="strong" style="color:var(--ink)">${s.name}</div>
-                  <div class="muted" style="font-size:var(--t-13)">${s.audienceSize} reachable customer${s.audienceSize === 1 ? '' : 's'} · <span class="badge badge-gray">${s.type.replace('_', ' ')}</span></div>
+                  <div class="muted" style="font-size:var(--t-13)">${s.audienceSize} reachable customer${s.audienceSize === 1 ? '' : 's'} · <span class="badge ${suggestionCategory(s).cls}">${suggestionCategory(s).label}</span></div>
                 </div>
                 <button class="btn btn-primary btn-sm" data-suggest="${s.name}" data-type="${s.type}" data-segment="${s.segmentId}">Create</button>
               </div>`).join('')
@@ -159,7 +165,22 @@ export function renderMktDashboard(mount) {
   });
 }
 
-const STATUS_BADGE = { draft: 'badge-gray', scheduled: 'badge-amber', sent: 'badge-green', paused: 'badge-red' };
+const STATUS_BADGE = { draft: 'badge-gray', scheduled: 'badge-amber', sent: 'badge-green', paused: 'badge-purple', failed: 'badge-red' };
+
+// Suggested-campaign category chip — derived from segment + type, not a
+// stored field, so it stays correct as new suggestions are added.
+function suggestionCategory(s) {
+  if (s.segmentId === 'seg_inactive') return { label: 'Win-back', cls: 'badge-purple' };
+  if (s.segmentId === 'seg_declined') return { label: 'Declined work', cls: 'badge-amber' };
+  if (s.type === 'review_request') return { label: 'Review request', cls: 'badge-green' };
+  if (s.type === 'reminder') return { label: 'Reminder', cls: 'badge-blue' };
+  return { label: s.type.replace('_', ' '), cls: 'badge-gray' };
+}
+
+// Top-segments progress-bar/chip color — by segment id where the meaning is
+// explicit, falling back to blue (audience) for anything else.
+const SEGMENT_COLOR = { seg_all: 'blue', seg_due_oil: 'amber', seg_due_tire: 'purple', seg_new: 'green', seg_inactive: 'red', seg_declined: 'amber', seg_returning: 'green', seg_fleet: 'blue' };
+function segmentColor(id) { return SEGMENT_COLOR[id] || 'blue'; }
 const TYPE_ICON = {
   email: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>',
   sms: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>',

@@ -1,25 +1,16 @@
-// AutoBook — modules/invoices.js (§11.10)
-// Invoice list + detail drawer. Recording a payment goes through
-// util.recordPayment, which can also close the linked RO — never set
-// invoice/RO status directly here.
-
-import { db } from '../lib/data.js';
-import { util } from '../lib/util.js';
-import { renderNav, toast } from '../lib/nav.js';
+// AutoBook — modules/invoices/inv-invoices-list.js
+// Invoices tab — ported from the former modules/invoices.js, unchanged
+// behavior (status filter/search, detail drawer, print, record payment via
+// util.recordPayment) — just retargeted to InvoiceOps's shared tab body and
+// drawer mount instead of owning the whole page.
+import { db } from '../../lib/data.js';
+import { util } from '../../lib/util.js';
+import { toast } from '../../lib/nav.js';
+import { openInvDrawer, closeInvDrawer } from './invoices-app.js';
 
 let currentInvoiceId = null;
 
-export function renderInvoices() {
-  renderNav('#icon-rail', 'invoices.html');
-  document.getElementById('avatar').textContent = (db.settings().owner || '?').charAt(0).toUpperCase();
-
-  renderList();
-  document.getElementById('filter-status').addEventListener('change', renderList);
-  document.getElementById('search-input').addEventListener('input', renderList);
-  document.getElementById('inv-overlay').addEventListener('click', (e) => {
-    if (e.target.id === 'inv-overlay') closeDrawer();
-  });
-}
+const STATUS_BADGE = { draft: 'badge-gray', sent: 'badge-blue', partial: 'badge-amber', paid: 'badge-green', overdue: 'badge-red' };
 
 function effectiveStatus(inv) {
   if (inv.status === 'sent' || inv.status === 'partial') {
@@ -28,13 +19,32 @@ function effectiveStatus(inv) {
   return inv.status;
 }
 
-const STATUS_BADGE = {
-  draft: 'badge-gray',
-  sent: 'badge-blue',
-  partial: 'badge-amber',
-  paid: 'badge-green',
-  overdue: 'badge-red',
-};
+export function renderInvInvoicesList(mount) {
+  mount.innerHTML = `
+    <div class="card">
+      <div class="card-body">
+        <div class="filters-row">
+          <select class="select" id="filter-status">
+            <option value="">All statuses</option>
+            <option value="draft">Draft</option>
+            <option value="sent">Sent</option>
+            <option value="partial">Partial</option>
+            <option value="paid">Paid</option>
+            <option value="overdue">Overdue</option>
+          </select>
+          <input class="input" type="text" id="search-input" placeholder="Search invoice, customer…" style="width:240px">
+        </div>
+        <table class="table" id="inv-table">
+          <thead><tr><th>Number</th><th>Customer</th><th>Vehicle</th><th>Issued</th><th class="num">Total</th><th class="num">Balance</th><th>Status</th><th></th></tr></thead>
+          <tbody id="inv-table-body"></tbody>
+        </table>
+      </div>
+    </div>
+  `;
+  document.getElementById('filter-status').addEventListener('change', renderList);
+  document.getElementById('search-input').addEventListener('input', renderList);
+  renderList();
+}
 
 function renderList() {
   const statusFilter = document.getElementById('filter-status').value;
@@ -78,11 +88,6 @@ function renderList() {
 function openDrawer(invoiceId) {
   currentInvoiceId = invoiceId;
   renderDrawer();
-  document.getElementById('inv-overlay').classList.add('open');
-}
-function closeDrawer() {
-  document.getElementById('inv-overlay').classList.remove('open');
-  currentInvoiceId = null;
 }
 
 function renderDrawer() {
@@ -93,7 +98,7 @@ function renderDrawer() {
   const settings = db.settings();
   const status = effectiveStatus(inv);
 
-  document.getElementById('inv-drawer').innerHTML = `
+  openInvDrawer(`
     <div class="modal-head inv-no-print">
       <div class="modal-title">${inv.number} <span class="badge ${STATUS_BADGE[status] || 'badge-gray'}" style="margin-left:8px">${status.charAt(0).toUpperCase() + status.slice(1)}</span></div>
       <button class="icon-btn" id="close-drawer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
@@ -156,9 +161,9 @@ function renderDrawer() {
         </div>
       </div>
     </div>
-  `;
+  `);
 
-  document.getElementById('close-drawer').addEventListener('click', closeDrawer);
+  document.getElementById('close-drawer').addEventListener('click', closeInvDrawer);
   document.getElementById('print-btn').addEventListener('click', () => window.print());
   document.getElementById('record-payment-btn')?.addEventListener('click', () => openPaymentModal(inv));
 }
@@ -184,8 +189,14 @@ function openPaymentModal(inv) {
             <option value="card">Card</option>
             <option value="cash">Cash</option>
             <option value="check">Check</option>
+            <option value="ach">ACH <span style="font-size:9px">(placeholder)</span></option>
+            <option value="deposit">Deposit</option>
             <option value="other">Other</option>
           </select>
+        </div>
+        <div class="field">
+          <label class="label">Reference # <span class="muted" style="font-size:10px">optional</span></label>
+          <input class="input" id="pay-reference" placeholder="Check #, auth code, etc.">
         </div>
         <div class="field-error" id="pay-error" style="color:var(--red);font-size:var(--t-13)"></div>
       </div>
@@ -214,7 +225,7 @@ function openPaymentModal(inv) {
       errEl.textContent = `Amount can't exceed the balance due (${util.fmtMoney(inv.balance)}).`;
       return;
     }
-    const updated = util.recordPayment(inv.id, amount, method);
+    const updated = util.recordPayment(inv.id, amount, method, { reference: overlay.querySelector('#pay-reference').value.trim() });
     toast(`Payment of ${util.fmtMoney(amount)} recorded — invoice now ${updated.status}.`, 'success');
     close();
     renderDrawer();

@@ -7,6 +7,9 @@
 import { db } from '../../lib/data.js';
 import { util } from '../../lib/util.js';
 import { toast, confirmDialog } from '../../lib/nav.js';
+import * as workflow from '../../lib/workflow.js';
+import { openOutreachPanel } from './outreach.js';
+import { isManagerView } from './crm-app.js';
 
 const STATUS_BADGE = {
   new: 'badge-blue',
@@ -90,9 +93,20 @@ function addLead() {
 }
 
 function renderList() {
-  const leads = db.leads().slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const manager = isManagerView();
+  const me = db.employeeById(db.settings().currentUserId);
+  // Personal CRM: never show a peer's leads — see lib/workflow.js's
+  // getMyLeads, the same filter the Personal Workspace view uses.
+  // Personal view: my own leads PLUS unclaimed ones (so front desk/advisors
+  // can still pick up an unassigned lead) — never a peer's already-assigned lead.
+  let leads = manager ? db.leads() : db.leads().filter((l) => l.assignedAdvisorId === me?.id || !l.assignedAdvisorId);
+  leads = leads.slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const advisors = db.employees().filter((e) => !['technician', 'apprentice', 'parts'].includes(e.role));
+
   document.getElementById('leads-list').innerHTML = leads.length
-    ? leads.map((l) => `
+    ? leads.map((l) => {
+        const owner = l.assignedAdvisorId ? db.employeeById(l.assignedAdvisorId) : null;
+        return `
       <div class="lead-card" data-lead-id="${l.id}">
         <div class="lc-head">
           <div>
@@ -105,15 +119,23 @@ function renderList() {
         <div class="lc-meta">
           <span class="badge badge-gray">${sourceLabel(l.source)}</span>
           <span class="badge badge-gray">${util.timeAgo(l.createdAt)}</span>
+          <span class="badge ${owner ? 'badge-blue' : 'badge-amber'}">${owner ? owner.firstName : 'Unassigned'}</span>
+          ${l.lastContactedAt ? '' : '<span class="badge badge-amber">Not contacted</span>'}
         </div>
         ${l.notes ? `<div class="lc-sub" style="margin-top:var(--s2)">${l.notes}</div>` : ''}
         ${l.status !== 'converted' && l.status !== 'lost' ? `
           <div class="lc-actions">
+            ${manager ? `<select class="select" data-assign="${l.id}" style="width:auto;font-size:var(--t-13)">
+              <option value="">Unassigned</option>
+              ${advisors.map((e) => `<option value="${e.id}" ${e.id === l.assignedAdvisorId ? 'selected' : ''}>${e.firstName} ${e.lastName}</option>`).join('')}
+            </select>` : !l.assignedAdvisorId ? `<button class="btn btn-secondary btn-sm" data-claim="${l.id}">Assign to me</button>` : ''}
+            <button class="btn btn-secondary btn-sm" data-outreach="${l.id}">Outreach</button>
             <button class="btn btn-primary btn-sm" data-convert="${l.id}">Convert to Customer</button>
             <button class="btn btn-secondary btn-sm" data-lost="${l.id}">Mark Lost</button>
           </div>` : ''}
-      </div>`).join('')
-    : '<div class="empty"><div class="empty-title">No leads yet</div><div class="empty-sub">Add one above to start working it.</div></div>';
+      </div>`;
+      }).join('')
+    : `<div class="empty"><div class="empty-title">No leads ${manager ? 'yet' : 'assigned to you'}</div><div class="empty-sub">${manager ? 'Add one above to start working it.' : 'Ask a manager to assign you one.'}</div></div>`;
 
   document.querySelectorAll('[data-convert]').forEach((btn) => {
     btn.addEventListener('click', async () => {
@@ -139,6 +161,23 @@ function renderList() {
       toast('Lead marked lost.');
       renderList();
     });
+  });
+  document.querySelectorAll('[data-assign]').forEach((sel) => {
+    sel.addEventListener('change', () => {
+      workflow.assignLeadOwner(sel.dataset.assign, sel.value || null);
+      toast('Lead owner updated.', 'success');
+      renderList();
+    });
+  });
+  document.querySelectorAll('[data-claim]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      workflow.assignLeadOwner(btn.dataset.claim, me?.id);
+      toast('Lead assigned to you.', 'success');
+      renderList();
+    });
+  });
+  document.querySelectorAll('[data-outreach]').forEach((btn) => {
+    btn.addEventListener('click', () => openOutreachPanel({ lead: db.leadById(btn.dataset.outreach) }));
   });
 }
 

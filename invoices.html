@@ -6,7 +6,7 @@
 <title>Torklio — Invoices</title>
 <link rel="stylesheet" href="style.css">
 <style>
-  /* page-scoped LAYOUT only — §11.10 */
+  /* page-scoped LAYOUT only — InvoiceOps */
   .filters-row{display:flex;gap:var(--s3);flex-wrap:wrap;margin-bottom:var(--s4)}
   .filters-row .select{width:auto;min-width:140px}
   .inv-detail-section{padding:var(--s4) 0;border-bottom:1px solid var(--rule)}
@@ -19,6 +19,13 @@
   .inv-totals .grand{font-size:var(--t-lg);font-weight:800;color:var(--ink)}
   .payment-row{display:flex;justify-content:space-between;padding:var(--s2) 0;border-bottom:1px solid var(--rule);font-size:var(--t-13)}
   .payment-row:last-child{border-bottom:none}
+  .qa-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:var(--s3)}
+  .qa-card{background:var(--surface);border:1px solid var(--rule);border-radius:var(--radius);padding:var(--s4);text-align:center;cursor:pointer;transition:box-shadow .15s,transform .15s}
+  .qa-card:hover{box-shadow:0 4px 12px rgba(0,0,0,.08);transform:translateY(-1px)}
+  .qa-card svg{width:26px;height:26px;margin-bottom:var(--s2);color:var(--accent)}
+  .qa-card-label{font-size:var(--t-13);font-weight:600;color:var(--ink)}
+  .aging-bar{display:flex;height:14px;border-radius:7px;overflow:hidden;margin:var(--s3) 0}
+  .aging-bar span{height:100%}
   @media print{
     .icon-rail,.app-header,.filters-row,.modal-foot,#close-drawer,.inv-no-print{display:none!important}
     .drawer{position:static;width:100%;box-shadow:none;border:none}
@@ -35,12 +42,12 @@
     <header class="app-header">
       <div>
         <div class="greeting-title">Invoices</div>
-        <div class="greeting-sub">Billing list, payments, and balances.</div>
+        <div class="greeting-sub">Billing, payments, expenses, and receivables — your shop's finance workspace.</div>
       </div>
       <div class="header-actions">
         <div class="search-pill">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
-          <input type="text" id="search-input" placeholder="Search invoice, customer…">
+          <input type="text" placeholder="Search anything…">
         </div>
         <button class="icon-btn" title="Notifications">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
@@ -50,26 +57,22 @@
     </header>
 
     <div class="page-body">
-      <div class="card">
-        <div class="card-body">
-          <div class="filters-row">
-            <select class="select" id="filter-status">
-              <option value="">All statuses</option>
-              <option value="draft">Draft</option>
-              <option value="sent">Sent</option>
-              <option value="partial">Partial</option>
-              <option value="paid">Paid</option>
-              <option value="overdue">Overdue</option>
-            </select>
-          </div>
-          <table class="table" id="inv-table">
-            <thead>
-              <tr><th>Number</th><th>Customer</th><th>Vehicle</th><th>Issued</th><th class="num">Total</th><th class="num">Balance</th><th>Status</th><th></th></tr>
-            </thead>
-            <tbody id="inv-table-body"></tbody>
-          </table>
+      <div class="row between" style="margin-bottom:var(--s4);flex-wrap:wrap;gap:var(--s3)">
+        <div class="seg" id="inv-tabs" style="margin-bottom:0">
+          <button data-view="dashboard">Dashboard</button>
+          <button data-view="customers">Customers / Balances</button>
+          <button data-view="estimates">Estimates</button>
+          <button data-view="invoices">Invoices</button>
+          <button data-view="payments">Payments Received</button>
+          <button data-view="credit-notes">Credit Notes / Refunds</button>
+          <button data-view="expenses">Expenses</button>
+          <button data-view="items">Items / Services</button>
+          <button data-view="closeout">Daily Closeout</button>
+          <button data-view="accounting">Accounting Export</button>
         </div>
+        <span id="inv-share-mount"></span>
       </div>
+      <div id="inv-view-body"></div>
     </div>
   </div>
 </div>
@@ -81,7 +84,7 @@
 <script type="module">
   import { db } from './lib/data.js';
   db.init();
-  import('./modules/invoices.js').then(m => m.renderInvoices());
+  import('./modules/invoices/invoices-app.js').then(m => m.renderInvoicesApp());
 </script>
 </body>
 </html>

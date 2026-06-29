@@ -7,8 +7,9 @@
 import { db } from '../../lib/data.js';
 import { util } from '../../lib/util.js';
 import { toast } from '../../lib/nav.js';
-import { openCrmDrawer, closeCrmDrawer } from './crm-app.js';
+import { openCrmDrawer, closeCrmDrawer, isManagerView } from './crm-app.js';
 import * as workflow from '../../lib/workflow.js';
+import { openOutreachPanel } from './outreach.js';
 
 workflow.ensureSeeded();
 
@@ -37,7 +38,11 @@ export function renderCustomers(mount) {
 function renderList() {
   const list = document.getElementById('customers-list');
   if (!list) return;
-  let customers = db.customers();
+  const manager = isManagerView();
+  const me = db.employeeById(db.settings().currentUserId);
+  // Personal CRM: never show a peer's accounts — same filter the Personal
+  // Workspace view uses (lib/workflow.js's getMyCustomers).
+  let customers = manager ? db.customers() : workflow.getMyCustomers(me?.id);
   if (searchTerm) {
     customers = customers.filter((c) => {
       const v = db.vehiclesForCustomer(c.id).map(util.vehicleLabel).join(' ');
@@ -69,12 +74,11 @@ function renderList() {
             <div class="tnum strong" style="color:var(--ink)">${util.fmtMoney(ltv)}</div>
           </div>
           <div class="row" style="gap:6px;flex-shrink:0" data-stop-row>
-            <button class="icon-btn" title="Call" data-call="${c.id}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg></button>
-            <button class="icon-btn" title="Email" data-email="${c.id}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></button>
+            <button class="icon-btn" title="Outreach" data-outreach="${c.id}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg></button>
           </div>
         </div>`;
       }).join('')
-    : '<div class="empty"><div class="empty-title">No customers match</div><div class="empty-sub">Try a different search.</div></div>';
+    : `<div class="empty"><div class="empty-title">No customers ${manager ? 'match' : 'assigned to you'}</div><div class="empty-sub">${manager ? 'Try a different search.' : 'Customers you advise will show up here.'}</div></div>`;
 
   list.querySelectorAll('[data-customer-id]').forEach((row) => {
     row.addEventListener('click', (e) => {
@@ -82,8 +86,7 @@ function renderList() {
       openProfile(row.dataset.customerId);
     });
   });
-  list.querySelectorAll('[data-call]').forEach((btn) => btn.addEventListener('click', () => toast('Call placeholder — no telephony integration yet.')));
-  list.querySelectorAll('[data-email]').forEach((btn) => btn.addEventListener('click', () => toast('Email placeholder — no messaging pipeline wired up yet.')));
+  list.querySelectorAll('[data-outreach]').forEach((btn) => btn.addEventListener('click', () => openOutreachPanel({ customer: db.customerById(btn.dataset.outreach) })));
 }
 
 const TL_ICON = {
@@ -111,10 +114,18 @@ function openProfile(customerId) {
   const timeline = db.customerTimeline(customerId);
   const tags = util.customerTags(customerId);
   const ltv = util.customerLifetimeValue(customerId);
-  const declinedJobs = db.jobsForCustomer(customerId).filter((j) => j.approvalStatus === 'declined');
+  const allJobs = db.jobsForCustomer(customerId);
+  const declinedJobs = allJobs.filter((j) => j.approvalStatus === 'declined');
+  const upcoming = allJobs.filter((j) => j.scheduledDate && j.scheduledDate >= new Date().toISOString().slice(0, 10) && ['scheduled', 'waiting'].includes(j.status));
   const meta = (status) => util.statusMeta(status);
   const badges = workflow.getEntityBadges('customer', customerId);
   const openFollowUps = workflow.openFollowUpTasks().filter((t) => t.customerId === customerId);
+  const ownerId = workflow.customerOwnerId(c);
+  const owner = ownerId ? db.employeeById(ownerId) : null;
+  const manager = isManagerView();
+  const advisors = db.employees().filter((e) => !['technician', 'apprentice', 'parts'].includes(e.role));
+  const campaignLinks = workflow.getLinkedEntities('customer', customerId).filter((l) => l.relationshipType === 'campaign_to_customer');
+  const nextActions = workflow.nextBestActionsForCustomer(c);
 
   openCrmDrawer(`
     <div class="modal-head">
@@ -124,12 +135,29 @@ function openProfile(customerId) {
     <div class="modal-body">
       <div class="muted" style="font-size:var(--t-13)">${c.phone}${c.email ? ' · ' + c.email : ''}</div>
       <div class="muted" style="font-size:var(--t-13)">Customer since ${util.fmtDate(c.createdAt)}</div>
+      <div class="row between" style="margin-top:var(--s2)">
+        <span class="muted" style="font-size:var(--t-13)">Account owner</span>
+        ${manager ? `<select class="select" id="cp-owner" style="width:auto;font-size:var(--t-13)">
+          <option value="">Unassigned</option>
+          ${advisors.map((e) => `<option value="${e.id}" ${e.id === ownerId ? 'selected' : ''}>${e.firstName} ${e.lastName}</option>`).join('')}
+        </select>` : `<span class="badge ${owner ? 'badge-blue' : 'badge-amber'}">${owner ? `${owner.firstName} ${owner.lastName}` : 'Unassigned'}</span>`}
+      </div>
       <div class="tag-row">${tags.length ? tags.map((t) => `<span class="badge ${t.badgeClass}">${t.label}</span>`).join('') : '<span class="empty-sub" style="font-size:var(--t-13)">No segment tags.</span>'}</div>
       <div class="tag-row">
         <span class="badge badge-gray">${badges.ros} RO${badges.ros === 1 ? '' : 's'}</span>
         <span class="badge badge-gray">${badges.quotes} quote${badges.quotes === 1 ? '' : 's'}</span>
         <span class="badge badge-gray">${badges.invoices} invoice${badges.invoices === 1 ? '' : 's'}</span>
         ${badges.followUps ? `<span class="badge badge-amber">${badges.followUps} follow-up${badges.followUps === 1 ? '' : 's'} due</span>` : ''}
+      </div>
+
+      ${nextActions.length ? `
+      <div class="alert alert-amber" style="margin-top:var(--s3)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        <div><b>Next best action:</b> ${nextActions[0].recommendation}</div>
+      </div>` : ''}
+
+      <div class="row" style="gap:var(--s2);margin-top:var(--s3)">
+        <button class="btn btn-secondary btn-sm" id="cp-outreach">Outreach</button>
       </div>
 
       <div class="grid-2" style="margin-top:var(--s4);gap:var(--s3)">
@@ -159,6 +187,18 @@ function openProfile(customerId) {
           ? vehicles.map((v) => `<div class="row between" style="padding:6px 0"><span>${util.vehicleLabel(v)}</span><span class="muted">${util.vehicleSub(v)}</span></div>`).join('')
           : '<div class="empty-sub">No vehicles on file.</div>'}
       </div>
+
+      ${upcoming.length ? `
+      <div style="margin-top:var(--s5)">
+        <div class="section-label" style="margin-bottom:var(--s2)">Upcoming appointments</div>
+        ${upcoming.map((j) => `<div class="row between" style="padding:6px 0"><span>${j.ro} — ${util.fmtDate(j.scheduledDate)}</span><span class="badge ${util.statusMeta(j.status).badgeClass}" style="font-size:10px">${util.statusMeta(j.status).label}</span></div>`).join('')}
+      </div>` : ''}
+
+      ${campaignLinks.length ? `
+      <div style="margin-top:var(--s5)">
+        <div class="section-label" style="margin-bottom:var(--s2)">Campaign activity</div>
+        ${campaignLinks.map((l) => { const camp = db.campaignById(l.sourceId); return `<div class="row between" style="padding:6px 0"><span>${camp?.name || 'Campaign'}</span><span class="muted" style="font-size:var(--t-13)">${util.fmtDate(l.createdAt)}</span></div>`; }).join('')}
+      </div>` : ''}
 
       ${declinedJobs.length ? `
       <div style="margin-top:var(--s5)">
@@ -199,6 +239,12 @@ function openProfile(customerId) {
     </div>
   `);
   document.getElementById('close-crm-drawer').addEventListener('click', closeCrmDrawer);
+  document.getElementById('cp-owner')?.addEventListener('change', (e) => {
+    workflow.assignCustomerOwner(customerId, e.target.value || null);
+    toast('Account owner updated.', 'success');
+    openProfile(customerId);
+  });
+  document.getElementById('cp-outreach').addEventListener('click', () => openOutreachPanel({ customer: c }));
   document.getElementById('cp-add-note').addEventListener('click', () => toast('Add note is a placeholder — there is no persisted note field on Customer yet.'));
   document.getElementById('cp-schedule-followup').addEventListener('click', () => {
     workflow.createFollowUpTask({ title: `Follow up with ${util.customerName(c)}`, reason: 'Manually scheduled from CRM', customerId: c.id, relatedType: 'customer', relatedId: c.id });
