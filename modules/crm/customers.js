@@ -1,12 +1,16 @@
 // AutoBook — modules/crm/customers.js (§C, CRM redesign)
 // Customer list (vehicle, last visit, lifetime spend, tags, next action) +
-// profile drawer (contact, vehicles, timeline, tags, lifetime value, and
-// placeholder actions — Add note / Schedule follow-up / Create estimate —
-// since no notes/follow-up/estimate entities exist yet).
+// profile drawer (contact, vehicles, linked-record badges, activity timeline,
+// tags, lifetime value, open follow-ups). "Schedule follow-up" creates a real
+// lib/workflow.js followUpTask; "Add note" / "Create estimate" stay
+// placeholders — there's still no persisted note field or Estimate entity.
 import { db } from '../../lib/data.js';
 import { util } from '../../lib/util.js';
 import { toast } from '../../lib/nav.js';
 import { openCrmDrawer, closeCrmDrawer } from './crm-app.js';
+import * as workflow from '../../lib/workflow.js';
+
+workflow.ensureSeeded();
 
 let searchTerm = '';
 
@@ -89,6 +93,17 @@ const TL_ICON = {
   communication: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>',
   quote: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h6"/></svg>',
 };
+// Cross-module workflow events (lib/workflow.js) use fine-grained `type`
+// strings (e.g. "quote_sent", "ro_started", "payment_recorded") rather than
+// the 5 coarse buckets above — bucket them so the timeline still shows an icon.
+function timelineIconKey(type) {
+  if (TL_ICON[type]) return type;
+  if (type.startsWith('booking')) return 'booking';
+  if (type.startsWith('quote')) return 'quote';
+  if (type.startsWith('invoice') || type.startsWith('payment') || type.startsWith('refund') || type.startsWith('credit_note')) return 'invoice';
+  if (type.startsWith('ro_') || type.startsWith('dvi') || type.startsWith('approval') || type === 'customer_checked_in') return 'repair_order';
+  return 'communication';
+}
 
 function openProfile(customerId) {
   const c = db.customerById(customerId);
@@ -98,6 +113,8 @@ function openProfile(customerId) {
   const ltv = util.customerLifetimeValue(customerId);
   const declinedJobs = db.jobsForCustomer(customerId).filter((j) => j.approvalStatus === 'declined');
   const meta = (status) => util.statusMeta(status);
+  const badges = workflow.getEntityBadges('customer', customerId);
+  const openFollowUps = workflow.openFollowUpTasks().filter((t) => t.customerId === customerId);
 
   openCrmDrawer(`
     <div class="modal-head">
@@ -108,6 +125,12 @@ function openProfile(customerId) {
       <div class="muted" style="font-size:var(--t-13)">${c.phone}${c.email ? ' · ' + c.email : ''}</div>
       <div class="muted" style="font-size:var(--t-13)">Customer since ${util.fmtDate(c.createdAt)}</div>
       <div class="tag-row">${tags.length ? tags.map((t) => `<span class="badge ${t.badgeClass}">${t.label}</span>`).join('') : '<span class="empty-sub" style="font-size:var(--t-13)">No segment tags.</span>'}</div>
+      <div class="tag-row">
+        <span class="badge badge-gray">${badges.ros} RO${badges.ros === 1 ? '' : 's'}</span>
+        <span class="badge badge-gray">${badges.quotes} quote${badges.quotes === 1 ? '' : 's'}</span>
+        <span class="badge badge-gray">${badges.invoices} invoice${badges.invoices === 1 ? '' : 's'}</span>
+        ${badges.followUps ? `<span class="badge badge-amber">${badges.followUps} follow-up${badges.followUps === 1 ? '' : 's'} due</span>` : ''}
+      </div>
 
       <div class="grid-2" style="margin-top:var(--s4);gap:var(--s3)">
         <div class="stat-card" style="padding:var(--s3)">
@@ -147,7 +170,12 @@ function openProfile(customerId) {
         <div class="row between" style="margin-bottom:var(--s3)">
           <div class="section-label">Notes &amp; follow-up</div>
         </div>
-        <div class="row" style="gap:var(--s2);flex-wrap:wrap">
+        ${openFollowUps.length ? openFollowUps.map((t) => `
+          <div class="followup-row">
+            <div><div class="strong" style="font-size:var(--t-13)">${t.title}</div><div class="muted" style="font-size:var(--t-13)">Due ${util.fmtDate(t.dueAt)}${t.reason ? ` · ${t.reason}` : ''}</div></div>
+            <button class="btn btn-secondary btn-sm" data-complete-followup="${t.id}">Mark done</button>
+          </div>`).join('') : ''}
+        <div class="row" style="gap:var(--s2);flex-wrap:wrap;margin-top:${openFollowUps.length ? 'var(--s2)' : '0'}">
           <button class="btn btn-secondary btn-sm" id="cp-add-note">+ Add note</button>
           <button class="btn btn-secondary btn-sm" id="cp-schedule-followup">+ Schedule follow-up</button>
           <button class="btn btn-secondary btn-sm" id="cp-create-estimate">+ Create estimate</button>
@@ -159,10 +187,10 @@ function openProfile(customerId) {
         ${timeline.length
           ? timeline.map((e) => `
             <div class="tl-event">
-              <span class="insight-bubble" style="background:var(--canvas);color:var(--ink-3)">${TL_ICON[e.type] || ''}</span>
+              <span class="insight-bubble" style="background:var(--canvas);color:var(--ink-3)">${TL_ICON[timelineIconKey(e.type)] || ''}</span>
               <div style="flex:1">
                 <div class="row between"><span class="strong" style="color:var(--ink)">${e.label}</span>${e.total != null ? `<span class="tnum">${util.fmtMoney(e.total)}</span>` : ''}</div>
-                <div class="muted" style="font-size:var(--t-13)">${util.fmtDate(e.at)} · <span class="badge ${meta(e.status).badgeClass}">${meta(e.status).label}</span></div>
+                <div class="muted" style="font-size:var(--t-13)">${util.fmtDate(e.at)}${e.status ? ` · <span class="badge ${meta(e.status).badgeClass}">${meta(e.status).label}</span>` : ''}</div>
               </div>
             </div>`).join('')
           : '<div class="empty-sub">No activity yet — no bookings, repair orders, or invoices on record.</div>'}
@@ -172,6 +200,17 @@ function openProfile(customerId) {
   `);
   document.getElementById('close-crm-drawer').addEventListener('click', closeCrmDrawer);
   document.getElementById('cp-add-note').addEventListener('click', () => toast('Add note is a placeholder — there is no persisted note field on Customer yet.'));
-  document.getElementById('cp-schedule-followup').addEventListener('click', () => toast('Schedule follow-up is a placeholder — wire this to Lead.nextFollowUpAt once customer-level follow-ups exist.'));
+  document.getElementById('cp-schedule-followup').addEventListener('click', () => {
+    workflow.createFollowUpTask({ title: `Follow up with ${util.customerName(c)}`, reason: 'Manually scheduled from CRM', customerId: c.id, relatedType: 'customer', relatedId: c.id });
+    toast('Follow-up scheduled', 'success');
+    openProfile(customerId);
+  });
   document.getElementById('cp-create-estimate').addEventListener('click', () => toast('Create estimate is a placeholder — Estimates aren\'t a real entity in this MVP yet.'));
+  document.querySelectorAll('[data-complete-followup]').forEach((btn) => btn.addEventListener('click', () => {
+    const tasks = db.followUpTasks();
+    const t = tasks.find((x) => x.id === btn.dataset.completeFollowup);
+    if (t) { t.status = 'completed'; t.completedAt = new Date().toISOString(); db.saveFollowUpTasks(tasks); }
+    toast('Follow-up marked done', 'success');
+    openProfile(customerId);
+  }));
 }
