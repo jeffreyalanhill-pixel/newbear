@@ -11,8 +11,23 @@ import { db } from '../../lib/data.js';
 import { util } from '../../lib/util.js';
 import { toast, confirmDialog } from '../../lib/nav.js';
 import { openTeamDrawer, closeTeamDrawer } from './team-app.js';
+import { openMyPtoRequestModal } from './employees.js';
 import { renderShareMenu, downloadCSV, downloadJSON, downloadICS, copyToClipboard, printHTML, showMessagePreview, buildICS } from '../../lib/export.js';
 import { SHIFT_ROLES } from '../../lib/auth.js';
+
+// Schedule role restriction (follow-up to the Team-section role-aware UI
+// task): only roles with full Schedule access (Owner/Admin, General
+// Manager, Service Manager — see util.js's MODULE_ACCESS_BY_ROLE) can
+// drag/drop or directly edit shifts. Everyone else gets a read-only grid
+// plus the shift-trade-request workflow below. Demo/UI-only — see the
+// SECURITY WARNING at the top of lib/auth.js; real enforcement must happen
+// server-side later.
+function currentEmployee() { return db.employeeById(db.settings().currentUserId); }
+function canEditSchedule() {
+  const employee = currentEmployee();
+  if (!employee) return true; // no demo user set — fail open to the original (Owner-default) behavior
+  return util.moduleAccessForRole(employee.role).access.Schedule === 'full';
+}
 
 // Shift Role is a fixed list (Technician/Service Advisor/Front Desk/
 // Inventory/Manager on Duty) — distinct from an employee's Permission Role.
@@ -31,6 +46,8 @@ const PTO_BADGE = { pending: 'badge-amber', approved: 'badge-green' };
 const SEVERITY_BADGE = { red: 'badge-red', amber: 'badge-amber', gray: 'badge-gray' };
 const CLOCK_BADGE = { not_clocked_in: 'badge-gray', clocked_in: 'badge-green', on_break: 'badge-amber', clocked_out: 'badge-blue' };
 const WEEK_BADGE = { draft: 'badge-gray', published: 'badge-green', locked: 'badge-red', reopened: 'badge-amber' };
+const TRADE_BADGE = { pending: 'badge-amber', approved: 'badge-green', denied: 'badge-red', canceled: 'badge-gray' };
+const TRADE_TYPE_LABEL = { trade: 'Pending trade', offer: 'Offered', coverage: 'Coverage requested', pickup: 'Pickup requested' };
 
 // `selectedDate` (any day in the week being viewed) is the single source of
 // truth — the week grid, month lookahead, and header all derive from it.
@@ -44,9 +61,25 @@ function currentWeekStart() { return util.weekStartForDate(selectedDate); }
 export function renderSchedule(mount) {
   selectedDate = new Date().toISOString().slice(0, 10);
   showMonth = false;
+  const canEdit = canEditSchedule();
   mount.innerHTML = `
     <div class="grid-3" id="sched-header" style="margin-bottom:var(--s4)"></div>
     <div class="grid-3" id="sched-labor-summary" style="margin-bottom:var(--s4)"></div>
+
+    ${!canEdit ? `
+    <div class="alert alert-amber" style="margin-bottom:var(--s4)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.7 3.9a2 2 0 00-3.4 0zM12 9v4M12 17h.01"/></svg>
+      <div><b>Read-only schedule</b> — request changes from a manager. Click a shift to request a trade, offer it for coverage, or request to pick up an open shift.</div>
+    </div>
+    <div class="card" style="margin-bottom:var(--s4)">
+      <div class="card-head"><div class="card-title">My Info</div><button class="btn btn-secondary btn-sm" id="sched-my-pto-request">Request Time Off</button></div>
+      <div class="card-body" id="sched-my-info"></div>
+    </div>` : ''}
+
+    ${canEdit ? `<div class="card" style="margin-bottom:var(--s4)">
+      <div class="card-head"><div class="card-title">Shift requests</div><span class="badge badge-gray" id="sched-requests-count"></span></div>
+      <div class="card-body" id="sched-requests-panel"></div>
+    </div>` : ''}
 
     <div class="card" style="margin-bottom:var(--s4)">
       <div class="card-body">
@@ -60,9 +93,10 @@ export function renderSchedule(mount) {
           </div>
           <div class="row" style="gap:var(--s2)">
             <span id="sched-share-mount"></span>
+            ${canEdit ? `
             <button class="btn btn-secondary btn-sm" id="sched-copy-week">Copy Week ›</button>
             <button class="btn btn-secondary btn-sm" id="sched-add-open-shift">+ Open Shift</button>
-            <button class="btn btn-primary btn-sm" id="sched-add-shift">+ Add Shift</button>
+            <button class="btn btn-primary btn-sm" id="sched-add-shift">+ Add Shift</button>` : ''}
           </div>
         </div>
       </div>
@@ -110,9 +144,13 @@ export function renderSchedule(mount) {
   document.getElementById('sched-today').addEventListener('click', () => { selectedDate = new Date().toISOString().slice(0, 10); renderAll(); });
   document.getElementById('sched-datepicker').addEventListener('change', (e) => { if (e.target.value) { selectedDate = e.target.value; renderAll(); } });
   document.getElementById('sched-month-toggle').addEventListener('click', () => { showMonth = !showMonth; renderMonthPanel(); });
-  document.getElementById('sched-add-shift').addEventListener('click', () => openShiftEditor(null, { date: selectedDate }));
-  document.getElementById('sched-add-open-shift').addEventListener('click', openOpenShiftEditor);
-  document.getElementById('sched-copy-week').addEventListener('click', openCopyWeekModal);
+  document.getElementById('sched-add-shift')?.addEventListener('click', () => openShiftEditor(null, { date: selectedDate }));
+  document.getElementById('sched-add-open-shift')?.addEventListener('click', openOpenShiftEditor);
+  document.getElementById('sched-copy-week')?.addEventListener('click', openCopyWeekModal);
+  document.getElementById('sched-my-pto-request')?.addEventListener('click', () => {
+    const me = currentEmployee();
+    if (me) openMyPtoRequestModal(me.id, renderMyInfo);
+  });
   renderShareMenu(document.getElementById('sched-share-mount'), [
     { label: 'Print Weekly Schedule', onClick: printWeeklySchedule },
     { label: 'Export CSV', onClick: exportScheduleCSV },
@@ -147,10 +185,30 @@ function renderAll() {
   renderTimeClock();
   renderMessaging();
   renderMonthPanel();
+  if (document.getElementById('sched-requests-panel')) renderShiftRequestsPanel();
+  if (document.getElementById('sched-my-info')) renderMyInfo();
+}
+
+function renderMyInfo() {
+  const me = currentEmployee();
+  const mount = document.getElementById('sched-my-info');
+  if (!mount || !me) return;
+  const manager = me.managerId ? db.employeeById(me.managerId) : null;
+  const pendingPto = db.ptoForEmployee(me.id).filter((p) => p.status === 'pending').length;
+  mount.innerHTML = `
+    <div class="row between" style="padding:4px 0"><span class="muted">My manager</span><span>${manager ? manager.firstName + ' ' + manager.lastName : '—'}</span></div>
+    <div class="row between" style="padding:4px 0"><span class="muted">My department</span><span>${me.department || '—'}</span></div>
+    <div class="row between" style="padding:4px 0"><span class="muted">PTO balance</span><span class="tnum strong">${me.ptoBalanceHours ?? 0} hrs</span></div>
+    <div class="row between" style="padding:4px 0"><span class="muted">Pending time-off requests</span><span class="tnum">${pendingPto}</span></div>
+  `;
 }
 
 // ---------------------------------------------------------------------------
+// Management-only — Owner/Admin, General Manager, Service Manager (Schedule:
+// full). Lower-level roles get renderPersonalScheduleCards() instead (see
+// below); these shop-wide labor/coverage numbers aren't shown to them.
 function renderHeader() {
+  if (!canEditSchedule()) { renderPersonalScheduleCards(); return; }
   const today = new Date().toISOString().slice(0, 10);
   const todayShifts = db.shiftsForDate(today).filter((s) => s.status !== 'canceled');
   const techsToday = todayShifts.filter((s) => db.employeeById(s.employeeId)?.isTech).length;
@@ -177,7 +235,9 @@ function renderHeader() {
 // Labor/overtime/coverage — real for this selected week (util.weekLaborSummary).
 // Labor cost is explicitly badged an estimate (hourly/flat-rate pay × hours
 // only — no taxes/benefits/OT multiplier, and salaried staff excluded).
+// Management-only, same gate as renderHeader() above.
 function renderLaborSummary() {
+  if (!canEditSchedule()) { document.getElementById('sched-labor-summary').innerHTML = ''; return; }
   const ws = currentWeekStart();
   const s = util.weekLaborSummary(ws);
   const cards = [
@@ -191,6 +251,48 @@ function renderLaborSummary() {
   document.getElementById('sched-labor-summary').innerHTML = cards.map((c) => `
     <div class="stat-card">
       <div class="stat-label">${c.label}${c.placeholder ? ' <span class="badge badge-gray" style="font-size:10px">estimate</span>' : ''}</div>
+      <div class="stat-value">${c.value}</div>
+    </div>`).join('');
+}
+
+// Lower-level "My Schedule" cards — replaces the management header AND the
+// labor-summary grid (the latter is cleared above). Real data throughout:
+// own shift today, own weekly hours, who's working today, pending requests.
+// Parts/Inventory gets a couple of team-flavored swaps per spec.
+function renderPersonalScheduleCards() {
+  const me = currentEmployee();
+  document.getElementById('sched-labor-summary').innerHTML = '';
+  if (!me) { document.getElementById('sched-header').innerHTML = ''; return; }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const myShiftToday = db.shifts().find((s) => s.employeeId === me.id && s.date === today && s.status !== 'canceled');
+  const weekStart = currentWeekStart();
+  const myWeeklyHours = util.weeklyHoursForEmployee(me.id, weekStart);
+  const workingToday = db.employees().filter((e) => e.employmentStatus === 'active' && e.clockStatus === 'in').length;
+  const myPendingRequests = db.shiftTradeRequests().filter((r) => r.requesterEmployeeId === me.id && r.status === 'pending').length;
+  const myPendingPto = db.ptoForEmployee(me.id).filter((p) => p.status === 'pending').length;
+  const openShifts = db.shiftsForWeek(weekStart).filter((s) => s.status === 'open' || !s.employeeId);
+
+  const cards = me.role === 'parts'
+    ? [
+        { label: 'My Shift Today', value: myShiftToday ? `${myShiftToday.start}–${myShiftToday.end}` : 'Off' },
+        { label: 'Parts Team Working Today', value: db.employees().filter((e) => e.role === 'parts' && e.clockStatus === 'in').length },
+        { label: 'Open Parts Coverage', value: openShifts.filter((s) => (s.roleForShift || '').toLowerCase().includes('inventory')).length },
+        { label: 'My Weekly Hours', value: `${myWeeklyHours}h` },
+        { label: 'My Pending Requests', value: myPendingRequests + myPendingPto },
+        { label: 'Who Is Working Today', value: workingToday },
+      ]
+    : [
+        { label: 'My Shift Today', value: myShiftToday ? `${myShiftToday.start}–${myShiftToday.end}` : 'Off' },
+        { label: 'My Weekly Hours', value: `${myWeeklyHours}h` },
+        { label: 'Open Shifts I Can Request', value: openShifts.length },
+        { label: 'Pending Shift Trade Requests', value: myPendingRequests },
+        { label: 'Pending Time Off Requests', value: myPendingPto },
+        { label: 'Who Is Working Today', value: workingToday },
+      ];
+  document.getElementById('sched-header').innerHTML = cards.map((c) => `
+    <div class="stat-card">
+      <div class="stat-label">${c.label}</div>
       <div class="stat-value">${c.value}</div>
     </div>`).join('');
 }
@@ -209,12 +311,14 @@ function renderWeekStatusBar() {
   `;
 
   const actions = [];
-  if (['draft', 'reopened'].includes(weekStatus.status)) actions.push('<button class="btn btn-primary btn-sm" id="wk-publish">Publish Week</button>');
-  if (weekStatus.status === 'published') {
-    actions.push('<button class="btn btn-secondary btn-sm" id="wk-lock">Lock Week</button>');
-    actions.push('<button class="btn btn-secondary btn-sm" id="wk-reopen">Reopen</button>');
+  if (canEditSchedule()) {
+    if (['draft', 'reopened'].includes(weekStatus.status)) actions.push('<button class="btn btn-primary btn-sm" id="wk-publish">Publish Week</button>');
+    if (weekStatus.status === 'published') {
+      actions.push('<button class="btn btn-secondary btn-sm" id="wk-lock">Lock Week</button>');
+      actions.push('<button class="btn btn-secondary btn-sm" id="wk-reopen">Reopen</button>');
+    }
+    if (weekStatus.status === 'locked') actions.push('<button class="btn btn-secondary btn-sm" id="wk-reopen">Reopen</button>');
   }
-  if (weekStatus.status === 'locked') actions.push('<button class="btn btn-secondary btn-sm" id="wk-reopen">Reopen</button>');
   document.getElementById('sched-week-actions').innerHTML = actions.join('');
 
   document.getElementById('wk-publish')?.addEventListener('click', () => {
@@ -250,6 +354,8 @@ function weekEnd(weekStartIso) {
 function renderGrid() {
   const start = currentWeekStart();
   const locked = util.getWeekStatus(start).status === 'locked';
+  const canEdit = canEditSchedule();
+  const readOnly = locked || !canEdit;
   const days = Array.from({ length: 5 }, (_, i) => {
     const d = new Date(start + 'T00:00:00');
     d.setDate(d.getDate() + i);
@@ -263,11 +369,17 @@ function renderGrid() {
   const shifts = db.shiftsForWeek(start);
   const openShifts = shifts.filter((s) => s.status === 'open' || !s.employeeId);
 
+  const pendingRequestBadge = (shift) => {
+    const pending = db.shiftTradeRequestsForShift(shift.id).find((r) => r.status === 'pending');
+    return pending ? `<span class="badge ${TRADE_BADGE.pending}" style="font-size:10px">${TRADE_TYPE_LABEL[pending.type] || 'Pending request'}</span>` : '';
+  };
+
   const shiftChip = (shift, extraBadge) => {
     const bay = db.bayById(shift.bayId);
     return `
-      <div class="sched-chip" draggable="${locked ? 'false' : 'true'}" data-drag-shift="${shift.id}">
+      <div class="sched-chip" draggable="${readOnly ? 'false' : 'true'}" data-drag-shift="${shift.id}">
         ${extraBadge || ''}
+        ${pendingRequestBadge(shift)}
         <div class="tnum" style="font-weight:600">${shift.start}–${shift.end}</div>
         <div class="muted" style="font-size:var(--t-xs)">${shift.roleForShift || ''}${bay ? ' · ' + bay.name : ''}</div>
         <span class="badge ${STATUS_BADGE[shift.status] || 'badge-gray'}" style="font-size:10px;margin-top:2px">${shift.status}</span>
@@ -293,15 +405,15 @@ function renderGrid() {
     } else if (unavailable) {
       inner = `<span class="badge badge-gray" style="font-size:10px">Unavailable</span>`;
     } else {
-      inner = `<span class="muted" style="font-size:var(--t-13)">${locked ? '—' : '+ Add'}</span>`;
+      inner = `<span class="muted" style="font-size:var(--t-13)">${!canEdit ? '—' : locked ? '—' : '+ Add'}</span>`;
     }
-    return `<div class="sched-cell sched-cell-shift${conflict ? ' sched-conflict' : ''}${locked ? ' sched-locked' : ''}" data-employee="${employee.id}" data-date="${dateStr}" data-shift="${shift?.id || ''}">${inner}</div>`;
+    return `<div class="sched-cell sched-cell-shift${conflict ? ' sched-conflict' : ''}${readOnly ? ' sched-locked' : ''}" data-employee="${employee.id}" data-date="${dateStr}" data-shift="${shift?.id || ''}">${inner}</div>`;
   };
 
   const openCellHtml = (day) => {
     const dateStr = day.toISOString().slice(0, 10);
     const dayOpenShifts = openShifts.filter((s) => s.date === dateStr);
-    return `<div class="sched-cell sched-cell-shift sched-open-cell${locked ? ' sched-locked' : ''}" data-date="${dateStr}" data-open-row="1">
+    return `<div class="sched-cell sched-cell-shift sched-open-cell${readOnly ? ' sched-locked' : ''}" data-date="${dateStr}" data-open-row="1">
       ${dayOpenShifts.map((s) => shiftChip(s)).join('') || '<span class="muted" style="font-size:var(--t-13)">—</span>'}
     </div>`;
   };
@@ -319,20 +431,27 @@ function renderGrid() {
 
   document.querySelectorAll('.sched-cell-shift').forEach((cell) => {
     cell.addEventListener('click', (ev) => {
+      const shiftId = cell.dataset.shift || ev.target.closest('[data-drag-shift]')?.dataset.dragShift;
       if (locked) {
         toast('This week is locked — reopen it to make changes.', 'error');
         return;
       }
-      const shiftId = cell.dataset.shift || ev.target.closest('[data-drag-shift]')?.dataset.dragShift;
+      if (!canEdit) {
+        // Read-only role: a shift opens the read-only detail view (with
+        // trade/offer/pickup actions); an empty cell does nothing — lower
+        // roles can't create shifts directly.
+        if (shiftId) openShiftDetailReadOnly(shiftId);
+        return;
+      }
       if (shiftId) openShiftEditor(shiftId);
       else if (cell.dataset.employee) openShiftEditor(null, { employeeId: cell.dataset.employee, date: cell.dataset.date });
     });
-    cell.addEventListener('dragover', (e) => { if (!locked) { e.preventDefault(); cell.classList.add('drag-over'); } });
+    cell.addEventListener('dragover', (e) => { if (!readOnly) { e.preventDefault(); cell.classList.add('drag-over'); } });
     cell.addEventListener('dragleave', () => cell.classList.remove('drag-over'));
     cell.addEventListener('drop', (e) => {
       e.preventDefault();
       cell.classList.remove('drag-over');
-      if (locked) return;
+      if (readOnly) return;
       const draggingId = document.querySelector('.sched-chip.dragging')?.dataset.dragShift;
       if (!draggingId) return;
       const targetEmployeeId = cell.dataset.openRow ? null : cell.dataset.employee;
@@ -353,7 +472,209 @@ function renderGrid() {
 }
 
 // ---------------------------------------------------------------------------
+// Read-only shift detail (lower-level roles) — shown instead of the full
+// shift editor. No direct edit button; only request actions that create a
+// pending util.shiftTradeRequest for a manager to approve/deny.
+// ---------------------------------------------------------------------------
+function openShiftDetailReadOnly(shiftId) {
+  const shift = db.shifts().find((s) => s.id === shiftId);
+  if (!shift) return;
+  const me = currentEmployee();
+  const assignee = db.employeeById(shift.employeeId);
+  const bay = db.bayById(shift.bayId);
+  const isMine = me && shift.employeeId === me.id;
+  const isOpen = shift.status === 'open' || !shift.employeeId;
+  const pending = db.shiftTradeRequestsForShift(shift.id).filter((r) => r.status === 'pending');
+
+  openTeamDrawer(`
+    <div class="modal-head">
+      <div class="modal-title">Shift Detail <span class="badge badge-gray" style="font-size:10px;margin-left:6px">read only</span></div>
+      <button class="icon-btn" id="close-team-drawer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="row between" style="padding:6px 0"><span class="muted">Employee</span><span>${assignee ? assignee.firstName + ' ' + assignee.lastName : 'Open — unassigned'}</span></div>
+      <div class="row between" style="padding:6px 0"><span class="muted">Date</span><span>${util.fmtDate(shift.date)}</span></div>
+      <div class="row between" style="padding:6px 0"><span class="muted">Time</span><span>${shift.start}–${shift.end}</span></div>
+      <div class="row between" style="padding:6px 0"><span class="muted">Shift role</span><span>${shift.roleForShift || '—'}</span></div>
+      <div class="row between" style="padding:6px 0"><span class="muted">Bay / location</span><span>${bay?.name || '—'}</span></div>
+      <div class="row between" style="padding:6px 0"><span class="muted">Status</span><span class="badge ${STATUS_BADGE[shift.status] || 'badge-gray'}">${shift.status}</span></div>
+      ${shift.note ? `<div class="row between" style="padding:6px 0"><span class="muted">Notes</span><span>${shift.note}</span></div>` : ''}
+      ${pending.length ? pending.map((r) => `<div class="alert alert-amber" style="margin-top:var(--s3)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.7 3.9a2 2 0 00-3.4 0zM12 9v4M12 17h.01"/></svg><div>${TRADE_TYPE_LABEL[r.type] || 'Pending request'} — awaiting manager approval${r.managerNote ? ': ' + r.managerNote : ''}</div></div>`).join('') : ''}
+
+      <div class="section-label" style="margin:var(--s4) 0 var(--s2)">Actions</div>
+      <div class="row" style="gap:var(--s2);flex-wrap:wrap">
+        ${isMine ? '<button class="btn btn-secondary btn-sm" id="sd-request-trade">Request Shift Trade</button>' : ''}
+        ${isMine ? '<button class="btn btn-secondary btn-sm" id="sd-offer-shift">Offer Shift / Request Coverage</button>' : ''}
+        ${isOpen && me ? '<button class="btn btn-primary btn-sm" id="sd-pickup">Request to Pick Up This Shift</button>' : ''}
+        ${isMine ? '<button class="btn btn-secondary btn-sm" id="sd-request-pto">Request Time Off for This Shift</button>' : ''}
+        <button class="btn btn-secondary btn-sm" id="sd-message-manager">Message Manager</button>
+      </div>
+      <div class="muted" style="font-size:var(--t-xs);margin-top:var(--s3)">All requests above need manager approval before the schedule changes — nothing here moves a shift directly.</div>
+    </div>
+  `);
+
+  document.getElementById('close-team-drawer').addEventListener('click', closeTeamDrawer);
+  document.getElementById('sd-request-trade')?.addEventListener('click', () => openRequestTradeModal(shift));
+  document.getElementById('sd-offer-shift')?.addEventListener('click', () => openOfferCoverageModal(shift));
+  document.getElementById('sd-pickup')?.addEventListener('click', async () => {
+    const confirmed = await confirmDialog(`Request to pick up this ${util.fmtDate(shift.date)} ${shift.start}–${shift.end} shift? A manager must approve before you're assigned.`, { confirmLabel: 'Request Pickup' });
+    if (!confirmed) return;
+    util.createShiftTradeRequest({ type: 'pickup', requesterEmployeeId: me.id, originalShiftId: shift.id, offeredToEmployeeId: me.id, reason: 'Requested to pick up this open shift.' });
+    toast('Pickup request submitted — waiting on manager approval.', 'success');
+    closeTeamDrawer();
+    renderAll();
+  });
+  document.getElementById('sd-request-pto')?.addEventListener('click', () => {
+    toast('Use "My Team → My PTO → Request Time Off" to submit a time-off request for this date.');
+  });
+  document.getElementById('sd-message-manager')?.addEventListener('click', () => {
+    toast('Message Manager is a placeholder — no real messaging exists yet.');
+  });
+}
+
+function openRequestTradeModal(shift) {
+  const me = currentEmployee();
+  const others = db.employees().filter((e) => e.id !== shift.employeeId && e.employmentStatus === 'active');
+  openTeamDrawer(`
+    <div class="modal-head">
+      <div class="modal-title">Request Shift Trade</div>
+      <button class="icon-btn" id="close-team-drawer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="muted" style="font-size:var(--t-13);margin-bottom:var(--s3)">Your shift: ${util.fmtDate(shift.date)} · ${shift.start}–${shift.end}${shift.roleForShift ? ' · ' + shift.roleForShift : ''}</div>
+      <div class="field"><label class="label">Trade with (optional)</label>
+        <select class="select" id="rt-employee"><option value="">No one specific — let manager decide</option>${others.map((e) => `<option value="${e.id}">${e.firstName} ${e.lastName}</option>`).join('')}</select>
+      </div>
+      <div class="field" style="margin-top:var(--s3)"><label class="label">Their shift to trade for (optional)</label>
+        <select class="select" id="rt-target-shift"><option value="">No specific shift</option></select>
+      </div>
+      <div class="field" style="margin-top:var(--s3)"><label class="label">Reason</label><textarea class="textarea" id="rt-reason" placeholder="Optional"></textarea></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" id="rt-cancel">Cancel</button>
+      <button class="btn btn-primary" id="rt-submit">Submit Request</button>
+    </div>
+  `);
+  document.getElementById('close-team-drawer').addEventListener('click', closeTeamDrawer);
+  document.getElementById('rt-cancel').addEventListener('click', closeTeamDrawer);
+  document.getElementById('rt-employee').addEventListener('change', (e) => {
+    const targetSel = document.getElementById('rt-target-shift');
+    const theirShifts = e.target.value ? db.shiftsForEmployee(e.target.value).filter((s) => s.date >= new Date().toISOString().slice(0, 10) && s.status !== 'canceled') : [];
+    targetSel.innerHTML = `<option value="">No specific shift</option>${theirShifts.map((s) => `<option value="${s.id}">${util.fmtDate(s.date)} · ${s.start}–${s.end}</option>`).join('')}`;
+  });
+  document.getElementById('rt-submit').addEventListener('click', () => {
+    util.createShiftTradeRequest({
+      type: 'trade', requesterEmployeeId: me.id, originalShiftId: shift.id,
+      requestedWithEmployeeId: document.getElementById('rt-employee').value || null,
+      targetShiftId: document.getElementById('rt-target-shift').value || null,
+      reason: document.getElementById('rt-reason').value.trim(),
+    });
+    toast('Trade request submitted — waiting on manager approval.', 'success');
+    closeTeamDrawer();
+    renderAll();
+  });
+}
+
+function openOfferCoverageModal(shift) {
+  const me = currentEmployee();
+  const others = db.employees().filter((e) => e.id !== shift.employeeId && e.employmentStatus === 'active');
+  openTeamDrawer(`
+    <div class="modal-head">
+      <div class="modal-title">Offer Shift / Request Coverage</div>
+      <button class="icon-btn" id="close-team-drawer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="muted" style="font-size:var(--t-13);margin-bottom:var(--s3)">Your shift: ${util.fmtDate(shift.date)} · ${shift.start}–${shift.end}${shift.roleForShift ? ' · ' + shift.roleForShift : ''}</div>
+      <div class="field"><label class="label">Offer to (optional)</label>
+        <select class="select" id="oc-employee"><option value="">Open to anyone — request coverage</option>${others.map((e) => `<option value="${e.id}">${e.firstName} ${e.lastName}</option>`).join('')}</select>
+      </div>
+      <div class="field" style="margin-top:var(--s3)"><label class="label">Reason</label><textarea class="textarea" id="oc-reason" placeholder="Optional"></textarea></div>
+      <div class="muted" style="font-size:var(--t-xs);margin-top:var(--s2)">You stay on the schedule for this shift until a manager approves the request.</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" id="oc-cancel">Cancel</button>
+      <button class="btn btn-primary" id="oc-submit">Submit Request</button>
+    </div>
+  `);
+  document.getElementById('close-team-drawer').addEventListener('click', closeTeamDrawer);
+  document.getElementById('oc-cancel').addEventListener('click', closeTeamDrawer);
+  document.getElementById('oc-submit').addEventListener('click', () => {
+    const offeredTo = document.getElementById('oc-employee').value || null;
+    util.createShiftTradeRequest({
+      type: offeredTo ? 'offer' : 'coverage', requesterEmployeeId: me.id, originalShiftId: shift.id,
+      offeredToEmployeeId: offeredTo, reason: document.getElementById('oc-reason').value.trim(),
+    });
+    toast('Request submitted — waiting on manager approval.', 'success');
+    closeTeamDrawer();
+    renderAll();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Manager approval queue — only rendered for roles with full Schedule access
+// (see the `canEdit` template guard in renderSchedule()).
+// ---------------------------------------------------------------------------
+function renderShiftRequestsPanel() {
+  const pending = db.pendingShiftTradeRequests().slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  document.getElementById('sched-requests-count').textContent = pending.length;
+  document.getElementById('sched-requests-panel').innerHTML = pending.length
+    ? pending.map((r) => {
+        const requester = db.employeeById(r.requesterEmployeeId);
+        const shift = db.shifts().find((s) => s.id === r.originalShiftId);
+        const target = r.targetShiftId ? db.shifts().find((s) => s.id === r.targetShiftId) : null;
+        const tradeWith = r.requestedWithEmployeeId ? db.employeeById(r.requestedWithEmployeeId) : null;
+        const offeredTo = r.offeredToEmployeeId ? db.employeeById(r.offeredToEmployeeId) : null;
+        return `
+        <div class="row between" style="padding:var(--s3) 0;border-bottom:1px solid var(--rule);align-items:flex-start;flex-wrap:wrap;gap:var(--s2)">
+          <div>
+            <div class="strong" style="color:var(--ink)">${requester ? requester.firstName + ' ' + requester.lastName : 'Unknown'} <span class="badge ${TRADE_BADGE[r.status]}" style="font-size:10px">${TRADE_TYPE_LABEL[r.type] || r.type}</span></div>
+            <div class="muted" style="font-size:var(--t-13)">Current shift: ${shift ? util.fmtDate(shift.date) + ' · ' + shift.start + '–' + shift.end : 'shift no longer exists'}</div>
+            ${target ? `<div class="muted" style="font-size:var(--t-13)">Target shift: ${util.fmtDate(target.date)} · ${target.start}–${target.end}</div>` : ''}
+            ${tradeWith ? `<div class="muted" style="font-size:var(--t-13)">Trade with: ${tradeWith.firstName} ${tradeWith.lastName}</div>` : ''}
+            ${offeredTo ? `<div class="muted" style="font-size:var(--t-13)">${r.type === 'pickup' ? 'Wants to pick up, assign to' : 'Offered to'}: ${offeredTo.firstName} ${offeredTo.lastName}</div>` : ''}
+            ${r.reason ? `<div class="muted" style="font-size:var(--t-13)">Reason: ${r.reason}</div>` : ''}
+            <div class="muted" style="font-size:var(--t-xs)">Submitted ${util.fmtDate(r.createdAt)}</div>
+          </div>
+          <div class="row" style="gap:var(--s2)">
+            <input class="input" placeholder="Manager note (optional)" id="note-${r.id}" style="width:180px">
+            <button class="btn btn-primary btn-sm" data-approve-request="${r.id}">Approve</button>
+            <button class="btn btn-danger btn-sm" data-deny-request="${r.id}">Deny</button>
+          </div>
+        </div>`;
+      }).join('')
+    : '<div class="empty-sub">No pending shift requests.</div>';
+
+  document.querySelectorAll('[data-approve-request]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.approveRequest;
+      const confirmed = await confirmDialog('Approve this request? The schedule will update immediately.', { confirmLabel: 'Approve' });
+      if (!confirmed) return;
+      try {
+        const note = document.getElementById(`note-${id}`)?.value.trim();
+        const { rePublishWarning } = util.approveShiftTradeRequest(id, note);
+        toast(rePublishWarning ? 'Request approved — this week is published, so you may want to re-send the schedule.' : 'Request approved.', 'success');
+        renderAll();
+      } catch (err) { toast(err.message, 'error'); }
+    });
+  });
+  document.querySelectorAll('[data-deny-request]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.denyRequest;
+      const note = document.getElementById(`note-${id}`)?.value.trim();
+      util.denyShiftTradeRequest(id, note);
+      toast('Request denied.');
+      renderAll();
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Management-only, same gate as renderHeader()/renderLaborSummary() above —
+// shop-wide coverage warnings aren't shown to lower-level roles.
 function renderWarnings() {
+  const card = document.getElementById('sched-warnings').closest('.card');
+  if (!canEditSchedule()) { if (card) card.style.display = 'none'; return; }
+  if (card) card.style.display = '';
   const warnings = util.scheduleWarnings(currentWeekStart());
   document.getElementById('sched-warnings').innerHTML = warnings.length
     ? warnings.map((w) => `<div class="row" style="gap:var(--s2);padding:6px 0;border-bottom:1px solid var(--rule)"><span class="badge ${SEVERITY_BADGE[w.severity] || 'badge-gray'}">${w.type.replace('_', ' ')}</span><span style="font-size:var(--t-13)">${w.message}</span></div>`).join('')
@@ -361,9 +682,21 @@ function renderWarnings() {
 }
 
 // ---------------------------------------------------------------------------
+// Time Clock visibility (schedule-cards role-restriction follow-up):
+// management roles (Schedule: full) see the whole team + can punch for
+// anyone (existing demo behavior). Bookkeeper/Finance sees a read-only team
+// hours summary (no punch buttons — view-only per the permission matrix).
+// Everyone else sees only their own row, with their own punch buttons.
 function renderTimeClock() {
   const today = new Date().toISOString().slice(0, 10);
-  const employees = db.employees().filter((e) => e.employmentStatus === 'active');
+  const me = currentEmployee();
+  const canEdit = canEditSchedule();
+  const isBookkeeper = me?.role === 'bookkeeper';
+  const employees = canEdit || isBookkeeper
+    ? db.employees().filter((e) => e.employmentStatus === 'active')
+    : (me ? [me] : []);
+  const showActions = canEdit || !isBookkeeper;
+
   document.getElementById('time-clock-list').innerHTML = employees.map((e) => {
     const entry = db.timeClockEntryFor(e.id, today);
     const status = entry?.status || 'not_clocked_in';
@@ -373,13 +706,20 @@ function renderTimeClock() {
         <span class="row" style="gap:var(--s2)">
           ${entry?.totalHours != null ? `<span class="muted tnum" style="font-size:var(--t-13)">${entry.totalHours} hrs</span>` : ''}
           <span class="badge ${CLOCK_BADGE[status] || 'badge-gray'}">${status.replace('_', ' ')}</span>
-          ${clockActionButton(e.id, status)}
+          ${showActions && (canEdit || e.id === me?.id) ? clockActionButton(e.id, status) : ''}
         </span>
       </div>`;
-  }).join('');
+  }).join('') || '<div class="empty-sub">No time clock data to show.</div>';
 
   document.querySelectorAll('[data-clock-action]').forEach((btn) => {
     btn.addEventListener('click', () => {
+      const today2 = new Date().toISOString().slice(0, 10);
+      const entry = db.timeClockEntryFor(btn.dataset.employee, today2);
+      const status = entry?.status || 'not_clocked_in';
+      if (btn.dataset.clockAction === 'clock_out' && !['clocked_in', 'on_break'].includes(status)) {
+        toast('You need to clock in before clocking out.', 'error');
+        return;
+      }
       try {
         const fn = { clock_in: util.clockIn, start_break: util.startBreak, end_break: util.endBreak, clock_out: util.clockOut }[btn.dataset.clockAction];
         fn(btn.dataset.employee);
@@ -390,15 +730,17 @@ function renderTimeClock() {
       }
     });
   });
-  document.querySelectorAll('[data-correct-entry]').forEach((btn) => {
-    btn.addEventListener('click', () => toast('Time entry correction is a placeholder — no audit workflow yet.'));
-  });
 }
 
 function clockActionButton(employeeId, status) {
-  const action = { not_clocked_in: ['clock_in', 'Clock In'], clocked_in: ['start_break', 'Start Break'], on_break: ['end_break', 'End Break'], clocked_out: null }[status];
-  if (!action) return `<button class="btn btn-secondary btn-sm" data-correct-entry data-employee="${employeeId}">Correct</button>`;
-  return `<button class="btn btn-secondary btn-sm" data-clock-action="${action[0]}" data-employee="${employeeId}">${action[1]}</button>${status !== 'not_clocked_in' ? `<button class="btn btn-secondary btn-sm" data-clock-action="clock_out" data-employee="${employeeId}">Clock Out</button>` : ''}`;
+  // Single source of truth: util.timeClockButtonsForStatus() — see its doc
+  // comment. Previously this and employees.js's renderMyTimeClock each had
+  // their own (and slightly different/buggy) button logic; both now defer
+  // to the same function so the displayed button always matches the
+  // employee's actual clock status.
+  return util.timeClockButtonsForStatus(status)
+    .map((b) => `<button class="btn btn-secondary btn-sm" data-clock-action="${b.action}" data-employee="${employeeId}">${b.label}</button>`)
+    .join('');
 }
 
 // ---------------------------------------------------------------------------

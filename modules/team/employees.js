@@ -238,20 +238,23 @@ function renderMyTimeClock(employeeId, readOnly) {
   const today = new Date().toISOString().slice(0, 10);
   const entry = db.timeClockEntryFor(employeeId, today);
   const status = entry?.status || 'not_clocked_in';
-  const action = { not_clocked_in: ['clock_in', 'Clock In'], clocked_in: ['start_break', 'Start Break'], on_break: ['end_break', 'End Break'] }[status];
+  const buttons = util.timeClockButtonsForStatus(status);
   document.getElementById('my-time-clock').innerHTML = `
     <div class="row between" style="padding:6px 0">
       <span class="badge ${CLOCK_BADGE[status] || 'badge-gray'}">${status.replace('_', ' ')}</span>
       ${entry?.totalHours != null ? `<span class="muted tnum">${entry.totalHours} hrs today</span>` : ''}
     </div>
     ${!readOnly ? `<div class="row" style="gap:var(--s2);margin-top:var(--s2)">
-      ${action ? `<button class="btn btn-secondary btn-sm" data-my-clock="${action[0]}">${action[1]}</button>` : ''}
-      ${status !== 'not_clocked_in' && status !== 'clocked_out' ? '<button class="btn btn-secondary btn-sm" data-my-clock="clock_out">Clock Out</button>' : ''}
+      ${buttons.map((b) => `<button class="btn btn-secondary btn-sm" data-my-clock="${b.action}">${b.label}</button>`).join('')}
     </div>` : ''}
   `;
   document.querySelectorAll('[data-my-clock]').forEach((btn) => {
     btn.addEventListener('click', () => {
       try {
+        if (btn.dataset.myClock === 'clock_out' && !['clocked_in', 'on_break'].includes(status)) {
+          toast('You need to clock in before clocking out.', 'error');
+          return;
+        }
         const fn = { clock_in: util.clockIn, start_break: util.startBreak, end_break: util.endBreak, clock_out: util.clockOut }[btn.dataset.myClock];
         fn(employeeId);
         toast('Time clock updated (demo).', 'success');
@@ -262,13 +265,19 @@ function renderMyTimeClock(employeeId, readOnly) {
 }
 
 function renderMyPtoList(employeeId) {
+  const mount = document.getElementById('my-pto-list');
+  if (!mount) return; // not every page that opens the PTO modal has this list mounted
   const list = db.ptoForEmployee(employeeId).slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  document.getElementById('my-pto-list').innerHTML = list.length
+  mount.innerHTML = list.length
     ? list.map((p) => `<div class="row between" style="padding:6px 0;border-bottom:1px solid var(--rule)"><span>${p.type} · ${util.fmtDate(p.startDate)}–${util.fmtDate(p.endDate)} · ${p.hours} hrs</span><span class="badge ${PTO_BADGE[p.status] || 'badge-gray'}">${p.status}</span></div>`).join('')
     : '<div class="empty-sub">No time-off requests yet.</div>';
 }
 
-function openMyPtoRequestModal(employeeId) {
+// Exported so other Team pages (e.g. modules/team/schedule.js's lower-level
+// "My Schedule" cards) can reuse the same Request Time Off flow instead of
+// duplicating the modal markup. `onSubmitted` is an optional extra refresh
+// callback for the caller's own UI.
+export function openMyPtoRequestModal(employeeId, onSubmitted) {
   openTeamDrawer(`
     <div class="modal-head">
       <div class="modal-title">Request Time Off</div>
@@ -303,6 +312,7 @@ function openMyPtoRequestModal(employeeId) {
     toast('Time off requested.', 'success');
     closeTeamDrawer();
     renderMyPtoList(employeeId);
+    onSubmitted?.();
   });
 }
 
