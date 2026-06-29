@@ -65,6 +65,10 @@ ul,ol{list-style:none} img,svg{display:block;max-width:100%}
 .rail-item:hover{color:var(--ink-2);background:var(--canvas)}
 .rail-item.active{background:var(--accent);color:#fff;box-shadow:0 4px 12px rgba(37,99,235,.35)}
 .rail-item .rail-dot{position:absolute;top:8px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--red);border:2px solid var(--rail)}
+/* Demo-only "view app as" role nav filtering (lib/nav.js) — visual only,
+   never blocks navigation; the link still works if clicked/typed directly. */
+.rail-item-disabled{opacity:.32;cursor:not-allowed}
+.rail-item-disabled:hover{background:none;color:var(--ink-4)}
 .rail-spacer{margin-top:auto}
 .main-col{flex:1;min-width:0;display:flex;flex-direction:column;padding:var(--s6) var(--s6) var(--s10) 0}
 .app-header{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--s4);margin-bottom:var(--s6)}

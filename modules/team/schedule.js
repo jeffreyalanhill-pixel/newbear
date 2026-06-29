@@ -12,6 +12,19 @@ import { util } from '../../lib/util.js';
 import { toast, confirmDialog } from '../../lib/nav.js';
 import { openTeamDrawer, closeTeamDrawer } from './team-app.js';
 import { renderShareMenu, downloadCSV, downloadJSON, downloadICS, copyToClipboard, printHTML, showMessagePreview, buildICS } from '../../lib/export.js';
+import { SHIFT_ROLES } from '../../lib/auth.js';
+
+// Shift Role is a fixed list (Technician/Service Advisor/Front Desk/
+// Inventory/Manager on Duty) — distinct from an employee's Permission Role.
+// Falls back to a free-text "Custom…" option so older shifts saved with a
+// different label (e.g. seed data's "Bay tech") still display correctly.
+function shiftRoleOptionsHtml(currentValue) {
+  const knownLabels = SHIFT_ROLES.map((r) => r.label);
+  const isCustom = currentValue && !knownLabels.includes(currentValue);
+  return `<option value="">No shift role</option>
+    ${SHIFT_ROLES.map((r) => `<option value="${r.label}" ${currentValue === r.label ? 'selected' : ''}>${r.label}</option>`).join('')}
+    ${isCustom ? `<option value="${currentValue}" selected>${currentValue} (custom)</option>` : ''}`;
+}
 
 const STATUS_BADGE = { scheduled: 'badge-blue', completed: 'badge-gray', missed: 'badge-red', swapped: 'badge-purple', canceled: 'badge-gray', open: 'badge-amber' };
 const PTO_BADGE = { pending: 'badge-amber', approved: 'badge-green' };
@@ -619,7 +632,7 @@ function openShiftEditor(shiftId, prefill) {
         <div class="field"><label class="label">Date</label><input class="input" type="date" id="se-date" value="${date}"></div>
         <div class="field"><label class="label">Start time</label><input class="input" type="time" id="se-start" value="${shift?.start || '08:00'}"></div>
         <div class="field"><label class="label">End time</label><input class="input" type="time" id="se-end" value="${shift?.end || '17:00'}"></div>
-        <div class="field"><label class="label">Role for shift</label><input class="input" id="se-role" value="${shift?.roleForShift || ''}" placeholder="e.g. Bay tech, Front desk"></div>
+        <div class="field"><label class="label">Shift role <span class="badge badge-gray" style="font-size:9px">not the same as permission role</span></label><select class="select" id="se-role">${shiftRoleOptionsHtml(shift?.roleForShift)}</select></div>
         <div class="field">
           <label class="label">Assigned bay</label>
           <select class="select" id="se-bay">
@@ -697,7 +710,7 @@ function openOpenShiftEditor() {
       </div>
       <div class="grid-2">
         <div class="field"><label class="label">Date</label><input class="input" type="date" id="os-date" value="${selectedDate}"></div>
-        <div class="field"><label class="label">Role for shift</label><input class="input" id="os-role" placeholder="e.g. Bay tech"></div>
+        <div class="field"><label class="label">Shift role <span class="badge badge-gray" style="font-size:9px">not the same as permission role</span></label><select class="select" id="os-role">${shiftRoleOptionsHtml('')}</select></div>
         <div class="field"><label class="label">Start time</label><input class="input" type="time" id="os-start" value="08:00"></div>
         <div class="field"><label class="label">End time</label><input class="input" type="time" id="os-end" value="17:00"></div>
         <div class="field">

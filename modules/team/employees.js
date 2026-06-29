@@ -8,7 +8,7 @@
 
 import { db } from '../../lib/data.js';
 import { util } from '../../lib/util.js';
-import { auth } from '../../lib/auth.js';
+import { auth, JOB_ROLES, SHIFT_ROLES } from '../../lib/auth.js';
 import { toast, confirmDialog } from '../../lib/nav.js';
 import { openTeamDrawer, closeTeamDrawer } from './team-app.js';
 
@@ -17,6 +17,9 @@ const WORK_STATUSES = ['working', 'idle', 'waiting'];
 const EMPLOYMENT_TYPES = ['full_time', 'part_time', 'contractor', 'seasonal'];
 const ACCOUNT_STATUSES = ['invited', 'active', 'suspended', 'deactivated'];
 const ACCOUNT_BADGE = { invited: 'badge-blue', active: 'badge-green', suspended: 'badge-amber', deactivated: 'badge-red' };
+const INVITE_STATUSES = ['not_invited', 'invited', 'accepted', 'expired'];
+const INVITE_BADGE = { not_invited: 'badge-gray', invited: 'badge-blue', accepted: 'badge-green', expired: 'badge-red' };
+const CLOCK_BADGE = { not_clocked_in: 'badge-gray', clocked_in: 'badge-green', on_break: 'badge-amber', clocked_out: 'badge-blue' };
 const PTO_BADGE = { pending: 'badge-amber', approved: 'badge-green', denied: 'badge-red', canceled: 'badge-gray' };
 const ACCESS_BADGE = { full: 'badge-green', limited: 'badge-blue', read_only: 'badge-gray', none: 'badge-red' };
 // Roles whose employees are technicians (drives bay assignment + floor
@@ -34,7 +37,18 @@ const TABS = [
   { id: 'activity', label: 'Activity' },
 ];
 
+// Team UI role tiers (role-presets follow-up, "Team for lower-level roles").
+// 'admin' (Owner/Admin, General Manager) gets this exact Employees page,
+// unchanged below. 'coverage' (Service Manager) and 'personal' (everyone
+// else) get the two views further down — demo/UI-only, see
+// auth.teamAccessTier()'s doc comment and the SECURITY WARNING at the top
+// of lib/auth.js. Real enforcement must happen server-side later.
 export function renderEmployees(mount) {
+  const employee = auth.currentUser();
+  const tier = employee ? auth.teamAccessTier(employee.role) : 'admin';
+  if (tier === 'coverage') { renderTeamCoverageView(mount); return; }
+  if (tier === 'personal') { renderMyTeamView(mount, employee); return; }
+
   mount.innerHTML = `
     <div class="grid-3" id="team-metrics" style="margin-bottom:var(--s4)"></div>
     <div class="card" style="margin-bottom:var(--s4)">
@@ -57,6 +71,239 @@ export function renderEmployees(mount) {
   renderList();
   renderTodaySchedule();
   renderPtoSummary();
+}
+
+// ---------------------------------------------------------------------------
+// 'coverage' tier (Service Manager) — team/bay coverage + a directory, no
+// admin actions (no Add Employee, no suspended/account-status data).
+// ---------------------------------------------------------------------------
+function renderTeamCoverageView(mount) {
+  const today = new Date().toISOString().slice(0, 10);
+  const techs = db.techs().filter((t) => t.employmentStatus === 'active');
+  const workingToday = techs.filter((t) => t.clockStatus === 'in');
+  const bays = db.bays();
+  const ptoToday = db.ptoRequests().filter((p) => p.status !== 'denied' && p.status !== 'canceled' && p.startDate <= today && p.endDate >= today);
+  const serviceTeam = db.employees().filter((e) => e.employmentStatus === 'active' && ['Service', 'Front Office'].includes(e.department) || e.isTech);
+
+  mount.innerHTML = `
+    <div class="alert alert-amber" style="margin-bottom:var(--s4)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.7 3.9a2 2 0 00-3.4 0zM12 9v4M12 17h.01"/></svg>
+      <div>Team coverage view — demo/UI-only. Role/permission admin and account management aren't shown for this role.</div>
+    </div>
+    <div class="grid-3" style="margin-bottom:var(--s4)">
+      <div class="stat-card"><div class="stat-label">Techs Working Today</div><div class="stat-value">${workingToday.length}/${techs.length}</div></div>
+      <div class="stat-card"><div class="stat-label">Bays In Use</div><div class="stat-value">${bays.filter((b) => db.jobs().some((j) => j.bayId === b.id && !['done', 'invoiced', 'closed'].includes(j.status))).length}/${bays.length}</div></div>
+      <div class="stat-card"><div class="stat-label">On PTO Today</div><div class="stat-value">${ptoToday.length}</div></div>
+    </div>
+    <div class="card" style="margin-bottom:var(--s4)">
+      <div class="card-head"><div class="card-title">Tech status &amp; bay assignment</div></div>
+      <div class="card-body" id="coverage-tech-list"></div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-head"><div class="card-title">PTO / absences (view only)</div></div>
+        <div class="card-body" id="coverage-pto-list"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div class="card-title">Service team directory</div></div>
+        <div class="card-body" id="coverage-directory"></div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('coverage-tech-list').innerHTML = techs.length
+    ? techs.map((t) => `
+      <div class="row between" style="padding:6px 0;border-bottom:1px solid var(--rule)">
+        <span>${t.firstName} ${t.lastName} <span class="muted">· ${db.bayById(t.bayId)?.name || 'Unassigned'}</span></span>
+        <span class="badge ${t.clockStatus === 'in' ? 'badge-green' : 'badge-gray'}">${t.clockStatus === 'in' ? t.workStatus : 'clocked out'}</span>
+      </div>`).join('')
+    : '<div class="empty-sub">No active technicians.</div>';
+
+  document.getElementById('coverage-pto-list').innerHTML = ptoToday.length
+    ? ptoToday.map((p) => `<div class="row between" style="padding:6px 0;border-bottom:1px solid var(--rule)"><span>${db.employeeById(p.employeeId)?.firstName || ''} ${db.employeeById(p.employeeId)?.lastName || ''} <span class="muted">· ${p.type}</span></span><span class="badge ${PTO_BADGE[p.status] || 'badge-gray'}">${p.status}</span></div>`).join('')
+    : '<div class="empty-sub">No one on PTO today.</div>';
+
+  document.getElementById('coverage-directory').innerHTML = renderSafeDirectory(serviceTeam);
+}
+
+// ---------------------------------------------------------------------------
+// 'personal' tier (everyone else) — "My Team": own profile/schedule/PTO/
+// time clock, who's working today, and a safe directory. No employee admin.
+// ---------------------------------------------------------------------------
+function renderMyTeamView(mount, employee) {
+  const isViewer = employee.role === 'viewer';
+  const isBookkeeper = employee.role === 'bookkeeper';
+  const today = new Date().toISOString().slice(0, 10);
+  const manager = employee.managerId ? db.employeeById(employee.managerId) : null;
+  const myShiftsToday = db.shiftsForEmployee(employee.id).filter((s) => s.date === today);
+  const workingToday = db.employees().filter((e) => e.employmentStatus === 'active' && e.clockStatus === 'in');
+  const directory = db.employees().filter((e) => e.employmentStatus === 'active');
+  const role = db.roleById(employee.role);
+
+  mount.innerHTML = `
+    <div class="alert alert-amber" style="margin-bottom:var(--s4)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.7 3.9a2 2 0 00-3.4 0zM12 9v4M12 17h.01"/></svg>
+      <div>${isViewer ? 'View-only — no edits, approvals, or other-employee details are shown.' : "My Team — demo/UI-only. You see your own info plus who's working today; full employee management isn't shown for this role."}</div>
+    </div>
+
+    <div class="grid-3" style="margin-bottom:var(--s4)">
+      <div class="stat-card"><div class="stat-label">My Role / Job Title</div><div class="stat-value" style="font-size:var(--t-lg)">${employee.jobTitle || role?.name || '—'}</div></div>
+      <div class="stat-card"><div class="stat-label">My Department</div><div class="stat-value" style="font-size:var(--t-lg)">${employee.department || '—'}</div></div>
+      <div class="stat-card"><div class="stat-label">My Manager</div><div class="stat-value" style="font-size:var(--t-lg)">${manager ? manager.firstName + ' ' + manager.lastName : '—'}</div></div>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:var(--s4);align-items:start">
+      <div class="card">
+        <div class="card-head"><div class="card-title">My schedule today</div></div>
+        <div class="card-body">
+          ${myShiftsToday.length
+            ? myShiftsToday.map((s) => `<div class="row between" style="padding:6px 0;border-bottom:1px solid var(--rule)"><span>${s.start}–${s.end}</span><span class="muted">${s.roleForShift || ''}</span></div>`).join('')
+            : '<div class="empty-sub">No shift scheduled today.</div>'}
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div class="card-title">My time clock</div>${isViewer ? '' : '<span class="badge badge-gray" style="font-size:10px">demo</span>'}</div>
+        <div class="card-body" id="my-time-clock"></div>
+      </div>
+    </div>
+
+    ${!isViewer ? `
+    <div class="card" style="margin-bottom:var(--s4)">
+      <div class="card-head"><div class="card-title">My PTO</div><button class="btn btn-secondary btn-sm" id="my-pto-request-btn">Request Time Off</button></div>
+      <div class="card-body">
+        <div class="row between" style="padding:6px 0;border-bottom:1px solid var(--rule)"><span class="muted">PTO balance</span><span class="strong tnum">${employee.ptoBalanceHours ?? 0} hrs</span></div>
+        <div id="my-pto-list"></div>
+      </div>
+    </div>` : ''}
+
+    ${employee.isTech ? `
+    <div class="grid-3" style="margin-bottom:var(--s4)">
+      <div class="stat-card"><div class="stat-label">My Assigned Bay</div><div class="stat-value" style="font-size:var(--t-lg)">${db.bayById(employee.bayId)?.name || 'Unassigned'}</div></div>
+      <div class="stat-card"><div class="stat-label">Certifications <span class="badge badge-gray" style="font-size:9px">placeholder</span></div><div class="stat-value" style="font-size:var(--t-lg)">${(employee.certifications || []).length || '—'}</div></div>
+      <div class="stat-card"><div class="stat-label">My Assigned Jobs</div><div class="stat-value" style="font-size:var(--t-lg)"><a href="repair-orders.html">View →</a></div></div>
+    </div>` : ''}
+
+    ${isBookkeeper ? `
+    <div class="card" style="margin-bottom:var(--s4)">
+      <div class="card-head"><div class="card-title">Timesheets &amp; payroll</div><span class="badge badge-gray" style="font-size:10px">placeholder</span></div>
+      <div class="card-body">
+        <div class="empty-sub">Timesheet export and payroll export aren't built yet — this is a placeholder for a future finance-facing Team view.</div>
+      </div>
+    </div>` : ''}
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-head"><div class="card-title">Who's working today</div></div>
+        <div class="card-body">
+          ${workingToday.length
+            ? workingToday.map((e) => `<div class="row between" style="padding:6px 0;border-bottom:1px solid var(--rule)"><span>${e.firstName} ${e.lastName}</span><span class="muted">${e.jobTitle || ''}</span></div>`).join('')
+            : '<div class="empty-sub">No one is clocked in right now.</div>'}
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div class="card-title">Team directory</div></div>
+        <div class="card-body">${renderSafeDirectory(directory)}</div>
+      </div>
+    </div>
+  `;
+
+  renderMyTimeClock(employee.id, isViewer);
+  if (!isViewer) {
+    renderMyPtoList(employee.id);
+    document.getElementById('my-pto-request-btn').addEventListener('click', () => openMyPtoRequestModal(employee.id));
+  }
+}
+
+// Safe fields only — name, role/job title, department, work status, phone/
+// email. No account status, no permission role, no PTO/pay details for
+// other employees.
+function renderSafeDirectory(employees) {
+  const list = employees.slice().sort((a, b) => a.firstName.localeCompare(b.firstName));
+  return list.length
+    ? list.map((e) => `
+      <div class="row between" style="padding:6px 0;border-bottom:1px solid var(--rule)">
+        <div>
+          <span class="strong" style="color:var(--ink)">${e.firstName} ${e.lastName}</span>
+          <span class="muted" style="font-size:var(--t-13)"> · ${e.jobTitle || ''}${e.department ? ' · ' + e.department : ''}</span>
+        </div>
+        <span class="row" style="gap:var(--s2)">
+          ${e.phone ? `<span class="muted" style="font-size:var(--t-13)">${e.phone}</span>` : ''}
+          ${e.isTech ? `<span class="badge ${e.workStatus === 'working' ? 'badge-green' : e.workStatus === 'idle' ? 'badge-amber' : 'badge-blue'}">${e.workStatus}</span>` : ''}
+        </span>
+      </div>`).join('')
+    : '<div class="empty-sub">No employees to show.</div>';
+}
+
+function renderMyTimeClock(employeeId, readOnly) {
+  const today = new Date().toISOString().slice(0, 10);
+  const entry = db.timeClockEntryFor(employeeId, today);
+  const status = entry?.status || 'not_clocked_in';
+  const action = { not_clocked_in: ['clock_in', 'Clock In'], clocked_in: ['start_break', 'Start Break'], on_break: ['end_break', 'End Break'] }[status];
+  document.getElementById('my-time-clock').innerHTML = `
+    <div class="row between" style="padding:6px 0">
+      <span class="badge ${CLOCK_BADGE[status] || 'badge-gray'}">${status.replace('_', ' ')}</span>
+      ${entry?.totalHours != null ? `<span class="muted tnum">${entry.totalHours} hrs today</span>` : ''}
+    </div>
+    ${!readOnly ? `<div class="row" style="gap:var(--s2);margin-top:var(--s2)">
+      ${action ? `<button class="btn btn-secondary btn-sm" data-my-clock="${action[0]}">${action[1]}</button>` : ''}
+      ${status !== 'not_clocked_in' && status !== 'clocked_out' ? '<button class="btn btn-secondary btn-sm" data-my-clock="clock_out">Clock Out</button>' : ''}
+    </div>` : ''}
+  `;
+  document.querySelectorAll('[data-my-clock]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      try {
+        const fn = { clock_in: util.clockIn, start_break: util.startBreak, end_break: util.endBreak, clock_out: util.clockOut }[btn.dataset.myClock];
+        fn(employeeId);
+        toast('Time clock updated (demo).', 'success');
+        renderMyTimeClock(employeeId, readOnly);
+      } catch (err) { toast(err.message, 'error'); }
+    });
+  });
+}
+
+function renderMyPtoList(employeeId) {
+  const list = db.ptoForEmployee(employeeId).slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  document.getElementById('my-pto-list').innerHTML = list.length
+    ? list.map((p) => `<div class="row between" style="padding:6px 0;border-bottom:1px solid var(--rule)"><span>${p.type} · ${util.fmtDate(p.startDate)}–${util.fmtDate(p.endDate)} · ${p.hours} hrs</span><span class="badge ${PTO_BADGE[p.status] || 'badge-gray'}">${p.status}</span></div>`).join('')
+    : '<div class="empty-sub">No time-off requests yet.</div>';
+}
+
+function openMyPtoRequestModal(employeeId) {
+  openTeamDrawer(`
+    <div class="modal-head">
+      <div class="modal-title">Request Time Off</div>
+      <button class="icon-btn" id="close-team-drawer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="grid-2">
+        <div class="field"><label class="label">Type</label>
+          <select class="select" id="my-pto-type"><option value="pto">PTO</option><option value="sick">Sick</option><option value="unpaid">Unpaid</option><option value="bereavement">Bereavement</option><option value="other">Other</option></select>
+        </div>
+        <div class="field"><label class="label">Hours requested</label><input class="input" type="number" min="0" id="my-pto-hours" value="8"></div>
+        <div class="field"><label class="label">Start date</label><input class="input" type="date" id="my-pto-start"></div>
+        <div class="field"><label class="label">End date</label><input class="input" type="date" id="my-pto-end"></div>
+        <div class="field" style="grid-column:1/-1"><label class="label">Reason</label><input class="input" id="my-pto-reason" placeholder="Optional"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" id="my-pto-cancel">Cancel</button>
+      <button class="btn btn-primary" id="my-pto-submit">Submit Request</button>
+    </div>
+  `);
+  document.getElementById('close-team-drawer').addEventListener('click', closeTeamDrawer);
+  document.getElementById('my-pto-cancel').addEventListener('click', closeTeamDrawer);
+  document.getElementById('my-pto-submit').addEventListener('click', () => {
+    const startDate = document.getElementById('my-pto-start').value;
+    const endDate = document.getElementById('my-pto-end').value;
+    if (!startDate || !endDate) { toast('Start and end date are required.', 'error'); return; }
+    util.requestPto(employeeId, {
+      type: document.getElementById('my-pto-type').value, startDate, endDate,
+      hours: document.getElementById('my-pto-hours').value, reason: document.getElementById('my-pto-reason').value.trim(),
+    });
+    toast('Time off requested.', 'success');
+    closeTeamDrawer();
+    renderMyPtoList(employeeId);
+  });
 }
 
 function renderMetrics() {
@@ -183,8 +430,9 @@ function renderOverviewTab(body, e) {
   body.innerHTML = `
     <div class="row between" style="padding:6px 0"><span class="muted">Full name</span><span>${e.firstName} ${e.lastName}</span></div>
     <div class="row between" style="padding:6px 0"><span class="muted">Job title</span><span>${e.jobTitle || '—'}</span></div>
+    <div class="row between" style="padding:6px 0"><span class="muted">Job role</span><span>${JOB_ROLES.find((r) => r.id === e.jobRole)?.label || '—'}</span></div>
     <div class="row between" style="padding:6px 0"><span class="muted">Department</span><span>${e.department || '—'}</span></div>
-    <div class="row between" style="padding:6px 0"><span class="muted">Role</span><span>${role?.name || e.role}</span></div>
+    <div class="row between" style="padding:6px 0"><span class="muted">Permission role</span><span>${role?.name || e.role}</span></div>
     <div class="row between" style="padding:6px 0"><span class="muted">Employment type</span><span>${(e.employmentType || '—').replace('_', ' ')}</span></div>
     <div class="row between" style="padding:6px 0"><span class="muted">Employment status</span><span class="badge ${e.employmentStatus === 'active' ? 'badge-green' : 'badge-gray'}">${e.employmentStatus}</span></div>
     ${e.isTech ? `<div class="row between" style="padding:6px 0"><span class="muted">Floor status</span><span class="badge badge-blue">${e.workStatus}</span></div>` : ''}
@@ -210,9 +458,11 @@ function renderAccountTab(body, e) {
     <div class="row between" style="padding:6px 0"><span class="muted">Account email</span><span>${e.accountEmail || e.email || '—'}</span></div>
     <div class="row between" style="padding:6px 0"><span class="muted">Display name</span><span>${e.firstName} ${e.lastName}</span></div>
     <div class="row between" style="padding:6px 0"><span class="muted">Account status</span><span class="badge ${ACCOUNT_BADGE[e.accountStatus] || 'badge-gray'}">${e.accountStatus || 'active'}</span></div>
+    <div class="row between" style="padding:6px 0"><span class="muted">Can log in <span class="badge badge-gray" style="font-size:10px">placeholder</span></span><span class="badge ${e.canLogin ? 'badge-green' : 'badge-gray'}">${e.canLogin ? 'Yes' : 'No'}</span></div>
+    <div class="row between" style="padding:6px 0"><span class="muted">Invite status <span class="badge badge-gray" style="font-size:10px">placeholder</span></span><span class="badge ${INVITE_BADGE[e.inviteStatus] || 'badge-gray'}">${(e.inviteStatus || 'not_invited').replace('_', ' ')}</span></div>
     <div class="row between" style="padding:6px 0"><span class="muted">Last login <span class="badge badge-gray" style="font-size:10px">placeholder</span></span><span>${e.lastLoginAt ? util.fmtDateTime(e.lastLoginAt) : 'Never'}</span></div>
     <div class="row between" style="padding:6px 0"><span class="muted">Invite sent <span class="badge badge-gray" style="font-size:10px">placeholder</span></span><span>${e.inviteSentAt ? util.fmtDate(e.inviteSentAt) : '—'}</span></div>
-    <div class="row between" style="padding:6px 0"><span class="muted">Role / membership</span><span>${db.roleById(e.role)?.name || e.role}</span></div>
+    <div class="row between" style="padding:6px 0"><span class="muted">Permission role</span><span>${db.roleById(e.role)?.name || e.role}</span></div>
     <div class="row between" style="padding:6px 0"><span class="muted">Shop access</span><span>${db.settings().name || 'My Shop'}</span></div>
 
     <div class="row" style="gap:var(--s2);flex-wrap:wrap;margin-top:var(--s4)">
@@ -272,8 +522,11 @@ function renderScheduleTab(body, e) {
       <div class="card-head"><div class="card-title">Add shift</div></div>
       <div class="card-body grid-2">
         <div class="field"><label class="label">Date</label><input class="input" type="date" id="sh-date"></div>
-        <div class="field"><label class="label">Bay/role for shift</label>
+        <div class="field"><label class="label">Bay</label>
           <select class="select" id="sh-bay"><option value="">No bay</option>${bays.map((b) => `<option value="${b.id}">${b.name}</option>`).join('')}</select>
+        </div>
+        <div class="field"><label class="label">Shift role <span class="badge badge-gray" style="font-size:9px">may differ from job role</span></label>
+          <select class="select" id="sh-role">${SHIFT_ROLES.map((r) => `<option value="${r.label}" ${e.shiftDefaultRole === r.id ? 'selected' : ''}>${r.label}</option>`).join('')}</select>
         </div>
         <div class="field"><label class="label">Start time</label><input class="input" type="time" id="sh-start" value="08:00"></div>
         <div class="field"><label class="label">End time</label><input class="input" type="time" id="sh-end" value="17:00"></div>
@@ -355,7 +608,7 @@ function renderScheduleTab(body, e) {
       toast('Date, start, and end time are required.', 'error');
       return;
     }
-    util.addShift(e.id, { date, start, end, bayId: document.getElementById('sh-bay').value || null, note: document.getElementById('sh-note').value.trim() });
+    util.addShift(e.id, { date, start, end, bayId: document.getElementById('sh-bay').value || null, roleForShift: document.getElementById('sh-role').value, note: document.getElementById('sh-note').value.trim() });
     toast('Shift added.', 'success');
     renderShiftList();
   });
@@ -458,21 +711,26 @@ function renderRoleTab(body, e, hrVisible) {
     body.innerHTML = '<div class="empty-sub">You don\'t have permission to view role/permission details.</div>';
     return;
   }
-  const roles = db.roles();
+  const roles = auth.assignableRoles();
   const role = db.roleById(e.role);
   const moduleAccess = util.moduleAccessForRole(e.role);
   const overrides = e.permissionOverrides || {};
   // Union of every permission key across all roles, not just this employee's
   // current role — an override can grant something the role doesn't.
-  const allPerms = [...new Set(roles.flatMap((r) => Object.keys(r.permissions)))].sort();
+  const allPerms = [...new Set(db.roles().flatMap((r) => Object.keys(r.permissions)))].sort();
 
   body.innerHTML = `
-    <div class="field" style="margin-bottom:var(--s4);max-width:280px">
-      <label class="label">Role</label>
+    <div class="alert alert-amber" style="margin-bottom:var(--s4)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.7 3.9a2 2 0 00-3.4 0zM12 9v4M12 17h.01"/></svg>
+      <div><b>Demo permissions only — server enforcement required later.</b> Frontend/localStorage permissions are demo-only; this is not production security. Real enforcement must happen server-side once this app moves to Supabase/a real backend.</div>
+    </div>
+    <div class="field" style="margin-bottom:var(--s3);max-width:340px">
+      <label class="label">Permission role <span class="badge badge-${role?.color || 'gray'}" style="font-size:9px">controls app access</span></label>
       <select class="select" id="role-select">
         ${roles.map((r) => `<option value="${r.id}" ${e.role === r.id ? 'selected' : ''}>${r.name}</option>`).join('')}
       </select>
     </div>
+    ${role?.description ? `<div class="muted" style="font-size:var(--t-13);margin-bottom:var(--s4);max-width:640px">${role.description}</div>` : ''}
 
     <div class="row between" style="margin-bottom:var(--s2)">
       <div class="section-label">Permission overrides</div>
@@ -658,7 +916,7 @@ function renderActivityTab(body, e) {
 // ---------------------------------------------------------------------------
 function openEmployeeForm(employeeId) {
   const e = employeeId ? db.employeeById(employeeId) : null;
-  const roles = db.roles();
+  const roles = auth.assignableRoles();
   const bays = db.bays();
   const managers = db.employees().filter((emp) => emp.id !== employeeId);
 
@@ -674,10 +932,24 @@ function openEmployeeForm(employeeId) {
         <div class="field"><label class="label">Job title</label><input class="input" id="ef-title" value="${e?.jobTitle || ''}"></div>
         <div class="field"><label class="label">Department</label><input class="input" id="ef-department" value="${e?.department || ''}"></div>
         <div class="field">
-          <label class="label">Role</label>
+          <label class="label">Permission role <span class="badge badge-green" style="font-size:9px">controls app access</span></label>
           <select class="select" id="ef-role">
             <option value="">Select role…</option>
             ${roles.map((r) => `<option value="${r.id}" ${e?.role === r.id ? 'selected' : ''}>${r.name}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label class="label">Job role <span class="badge badge-gray" style="font-size:9px">category, not app access</span></label>
+          <select class="select" id="ef-jobrole">
+            <option value="">None</option>
+            ${JOB_ROLES.map((r) => `<option value="${r.id}" ${e?.jobRole === r.id ? 'selected' : ''}>${r.label}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label class="label">Default shift role <span class="badge badge-gray" style="font-size:9px">can differ per shift</span></label>
+          <select class="select" id="ef-shiftrole">
+            <option value="">None</option>
+            ${SHIFT_ROLES.map((r) => `<option value="${r.id}" ${e?.shiftDefaultRole === r.id ? 'selected' : ''}>${r.label}</option>`).join('')}
           </select>
         </div>
         <div class="field">
@@ -747,6 +1019,9 @@ function saveEmployeeForm(employeeId) {
   const isTech = TECH_ROLES.includes(role);
   const fields = {
     firstName, lastName, role, isTech,
+    permissionRole: role,
+    jobRole: document.getElementById('ef-jobrole').value || null,
+    shiftDefaultRole: document.getElementById('ef-shiftrole').value || null,
     jobTitle: document.getElementById('ef-title').value.trim(),
     department: document.getElementById('ef-department').value.trim(),
     managerId: document.getElementById('ef-manager').value || null,
@@ -776,6 +1051,7 @@ function saveEmployeeForm(employeeId) {
       payType: 'hourly', payRate: 0, clockStatus: 'out',
       hireDate: new Date().toISOString().slice(0, 10), permissionOverrides: {},
       accountStatus: 'invited', accountEmail: fields.email, lastLoginAt: null, inviteSentAt: null,
+      canLogin: false, inviteStatus: 'not_invited',
       ptoBalanceHours: 0, sickBalanceHours: 0, certifications: [],
       ...fields,
     });

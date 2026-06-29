@@ -4,6 +4,7 @@
 import { db } from '../lib/data.js';
 import { util } from '../lib/util.js';
 import { renderNav } from '../lib/nav.js';
+import { hasRoleDashboard, renderRoleDashboard, roleDashboardMeta } from './role-dashboards.js';
 
 function svg(path, vb = '0 0 24 24') {
   return `<svg viewBox="${vb}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;
@@ -27,11 +28,60 @@ const ICONS = {
 
 const FLAG_DOT = { red: 'dot-red', amber: 'dot-amber', blue: 'dot-blue' };
 
+// One dashboard renderer, one entry point — dashboard.html only ever calls
+// this. It picks Owner/Admin's existing rich dashboard (renderOwnerDashboard,
+// unchanged below) for Owner and as the fallback for any role with no
+// dedicated config, or hands off to modules/role-dashboards.js for every
+// other App Permission Role. See lib/auth.js's SECURITY WARNING — this is
+// demo/UI-only role filtering (driven by the "View app as" switcher on the
+// Team page), not real access control.
 export function renderDashboard() {
+  const employee = db.employeeById(db.settings().currentUserId);
+  const roleId = employee?.role;
+  if (!employee || !roleId || roleId === 'owner' || !hasRoleDashboard(roleId)) {
+    renderOwnerDashboard();
+    return;
+  }
+  renderRoleDashboardPage(roleId, employee);
+}
+
+function renderRoleDashboardPage(roleId, employee) {
+  renderNav('#icon-rail', 'dashboard.html');
+  const role = db.roleById(roleId);
+  const meta = roleDashboardMeta(roleId);
+  document.getElementById('greeting-title').textContent = meta?.title || `Hi, ${employee.firstName}`;
+  const headerTextEl = document.getElementById('greeting-title').parentElement;
+  let sub = headerTextEl.querySelector('.greeting-sub');
+  if (!sub) { sub = document.createElement('div'); sub.className = 'greeting-sub'; headerTextEl.appendChild(sub); }
+  sub.innerHTML = `${meta?.subtitle || ''} <span class="badge badge-amber" style="font-size:10px;margin-left:6px">Dashboard view: ${role?.name || roleId} — demo only</span>`;
+  document.getElementById('avatar').textContent = (employee.firstName || '?').charAt(0).toUpperCase();
+
+  // The Owner dashboard's three-column shell (kpi-strip/kanban/flags/etc +
+  // context-rail) is purpose-built for Owner's data; role dashboards instead
+  // render entirely into .page-body and collapse the context rail, since
+  // none of the role configs need it. Nothing here touches the Owner path.
+  const pageBody = document.querySelector('.page-body');
+  renderRoleDashboard(pageBody, roleId, employee);
+  const contextRail = document.getElementById('context-rail');
+  if (contextRail) {
+    contextRail.innerHTML = `
+      <div class="ctx-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        Demo role view
+      </div>
+      <div class="muted" style="font-size:var(--t-13);margin-bottom:var(--s3)">You're viewing the dashboard as <b>${role?.name || roleId}</b>. This only changes what's shown in the browser — see the Team page's "View app as" switcher to change roles.</div>
+      <a class="btn btn-secondary btn-sm" href="team.html">Manage roles / switch demo view</a>
+    `;
+  }
+}
+
+function renderOwnerDashboard() {
   renderNav('#icon-rail', 'dashboard.html');
 
   const settings = db.settings();
   document.getElementById('greeting-title').textContent = `Good morning, ${settings.owner || ''}`.trim();
+  const sub = document.querySelector('.greeting-sub');
+  if (sub) sub.innerHTML = "Here's how your shop is performing today.";
   document.getElementById('avatar').textContent = (settings.owner || '?').charAt(0).toUpperCase();
 
   renderKpiStrip();

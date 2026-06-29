@@ -6,10 +6,15 @@
 <title>Torklio — Inventory</title>
 <link rel="stylesheet" href="style.css">
 <style>
-  /* page-scoped LAYOUT only — §11.11 */
+  /* page-scoped LAYOUT only — InventoryOps foundation. Sub-app: shared
+     icon-rail + its own secondary tab nav + hash-routed views, same pattern
+     as crm.html/quotes.html/team.html. */
+  .inv-tabs{margin-bottom:var(--s5)}
   .qty-adjust{display:flex;align-items:center;gap:6px}
   .qty-adjust button{width:24px;height:24px;border-radius:6px;border:1px solid var(--rule);background:var(--card);font-weight:700}
   .qty-adjust button:hover{background:var(--canvas)}
+  .loc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:var(--s2)}
+  .loc-card{border:1px solid var(--rule);border-radius:var(--r-md);padding:var(--s3)}
 </style>
 </head>
 <body>
@@ -20,39 +25,37 @@
     <header class="app-header">
       <div>
         <div class="greeting-title">Inventory</div>
-        <div class="greeting-sub">Parts on hand, reorder points, and stock adjustments.</div>
+        <div class="greeting-sub">Parts, purchase orders, transfers, and returns across every location.</div>
       </div>
       <div class="header-actions">
         <span id="inv-share-mount"></span>
-        <button class="btn btn-primary" id="add-part-btn">+ Add Part</button>
         <div class="avatar" id="avatar">J</div>
       </div>
     </header>
 
     <div class="page-body">
-      <div id="low-stock-banner"></div>
-      <div class="card">
-        <div class="card-body">
-          <table class="table">
-            <thead>
-              <tr><th>Name</th><th>SKU</th><th>Category</th><th class="num">On Hand</th><th class="num">Reorder</th><th class="num">Cost</th><th class="num">Price</th><th>Vendor</th><th></th></tr>
-            </thead>
-            <tbody id="parts-table-body"></tbody>
-          </table>
-        </div>
+      <div id="inv-banner" style="margin-bottom:var(--s4)"></div>
+      <div class="seg inv-tabs" id="inv-tabs">
+        <button data-view="dashboard">Dashboard</button>
+        <button data-view="stock">Stock</button>
+        <button data-view="purchase-orders">Purchase Orders</button>
+        <button data-view="transfers">Transfers</button>
+        <button data-view="returns-counts">Returns &amp; Counts</button>
+        <button data-view="suppliers">Suppliers &amp; Integrations</button>
       </div>
+      <div id="inv-view-body"></div>
     </div>
   </div>
 </div>
 
 <div class="overlay" id="inv-overlay">
-  <div class="modal" id="inv-modal" style="max-width:420px"></div>
+  <div class="drawer" id="inv-drawer"></div>
 </div>
 
 <script type="module">
   import { db } from './lib/data.js';
   db.init();
-  import('./modules/inventory.js').then(m => m.renderInventory());
+  import('./modules/inventory/inventory-app.js').then(m => m.renderInventoryApp());
 </script>
 </body>
 </html>

@@ -64,10 +64,17 @@
     </header>
 
     <div class="page-body">
-      <div class="seg team-tabs" id="team-tabs">
-        <button data-view="employees">Employees</button>
-        <button data-view="roles">Roles &amp; Permissions</button>
-        <button data-view="schedule">Schedule</button>
+      <div class="row between" style="margin-bottom:var(--s4);flex-wrap:wrap;gap:var(--s3)">
+        <div class="seg team-tabs" id="team-tabs" style="margin-bottom:0">
+          <button data-view="employees">Employees</button>
+          <button data-view="roles">Roles &amp; Permissions</button>
+          <button data-view="schedule">Schedule</button>
+        </div>
+        <div class="row" style="gap:var(--s2)">
+          <label class="muted" style="font-size:var(--t-13)" for="demo-view-as">View app as <span class="badge badge-gray" style="font-size:9px">demo only</span></label>
+          <select class="select" id="demo-view-as" style="width:auto"></select>
+          <button class="btn btn-secondary btn-sm" id="demo-view-reset" title="Back to Owner/Admin">Reset to Owner</button>
+        </div>
       </div>
       <div id="team-view-body"></div>
     </div>
