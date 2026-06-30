@@ -1,123 +1,191 @@
-// AutoBook — modules/live-monitor.js (§11.6)
-// Floor display + dispatch. Three drag paths, none of which ever set
-// ro.status directly — each goes through a sanctioned util lifecycle
-// transition: waiting/on_hold -> in_progress (util.startJob), bay -> bay
-// (util.moveToBay, status untouched), bay -> waiting (util.returnToWaiting).
+// AutoBook — modules/live-monitor.js
+// Shop floor display board — dark kanban layout (Clever Bear AutoBook design).
+// Three drag paths, unchanged from v1 — each goes through a sanctioned util
+// lifecycle transition: waiting → in_progress (util.startJob), bay → bay
+// (util.moveToBay), bay → waiting (util.returnToWaiting). No status field is
+// ever set directly.
 
 import { db } from '../lib/data.js';
 import { util } from '../lib/util.js';
 import { toast } from '../lib/nav.js';
 
 export function renderLiveMonitor() {
+  initShopName();
   startClock();
-  renderQueue();
+  renderCounts();
   renderBays();
+  renderLanes();
   wireQueueDropZone();
+}
+
+function initShopName() {
+  const el = document.getElementById('mon-shop-name');
+  if (el) el.textContent = db.settings()?.shopName || 'Shop Monitor';
 }
 
 function startClock() {
   const tick = () => {
-    document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+    const now = new Date();
+    const clockEl = document.getElementById('clock');
+    const dateEl  = document.getElementById('mon-date');
+    if (clockEl) clockEl.textContent = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+    if (dateEl)  dateEl.textContent  = now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
   };
   tick();
   setInterval(tick, 1000);
 }
 
-function renderQueue() {
-  const waiting = db.jobs().filter((j) => j.status === 'waiting');
-  document.getElementById('queue-list').innerHTML = waiting.length
-    ? waiting.map((j) => {
-        const v = db.vehicleById(j.vehicleId);
-        const c = db.customerById(j.customerId);
-        const mk = util.makeBadge(v?.make);
-        return `
-        <div class="queue-card" draggable="true" data-job-id="${j.id}" style="margin-bottom:var(--s3)">
-          <div class="queue-top">
-            <span class="make-badge" style="background:${mk.bg};color:${mk.txt}">${mk.letter}</span>
-            <span class="queue-name">${util.vehicleLabel(v)}</span>
-          </div>
-          <div class="queue-sub">${util.customerName(c)} · ${j.lineItems?.[0]?.name || ''}</div>
-        </div>`;
-      }).join('')
-    : `<div class="queue-sub" style="padding:var(--s4) 0">No jobs waiting.</div>`;
-
-  document.querySelectorAll('.queue-card').forEach((card) => {
-    card.addEventListener('dragstart', () => card.classList.add('dragging'));
-    card.addEventListener('dragend', () => card.classList.remove('dragging'));
-  });
+function activeJobs() {
+  return db.jobs().filter((j) => !['cancelled', 'closed'].includes(j.status));
 }
 
+function renderCounts() {
+  const jobs = activeJobs();
+  const el = document.getElementById('mon-counts');
+  if (!el) return;
+  const counts = [
+    { label: 'Scheduled', num: jobs.filter((j) => j.status === 'scheduled').length,  cls: 'c-gray' },
+    { label: 'Waiting',   num: jobs.filter((j) => j.status === 'waiting').length,    cls: 'c-amber' },
+    { label: 'In Bay',    num: jobs.filter((j) => j.status === 'in_progress').length, cls: 'c-blue' },
+    { label: 'On Hold',   num: jobs.filter((j) => j.status === 'on_hold').length,    cls: 'c-orange' },
+    { label: 'Ready',     num: jobs.filter((j) => j.status === 'ready' || j.status === 'invoiced').length, cls: 'c-green' },
+  ];
+  el.innerHTML = counts.map((c) => `
+    <div class="mon-count-item ${c.cls}">
+      <div class="mon-count-num">${c.num}</div>
+      <div class="mon-count-label">${c.label}</div>
+    </div>`).join('');
+}
+
+// ── Animation class by status ────────────────────────────────────────────────
+function animClass(status) {
+  if (status === 'scheduled')  return 'mon-anim-float';
+  if (status === 'waiting')    return 'mon-anim-shimmer';
+  if (status === 'in_progress') return 'mon-anim-glow-blue';
+  if (status === 'on_hold')    return 'mon-anim-glow-amber';
+  if (status === 'ready' || status === 'invoiced') return 'mon-anim-glow-green';
+  return '';
+}
+
+function fmtAge(ts) {
+  if (!ts) return '';
+  const mins = Math.floor((Date.now() - new Date(ts).getTime()) / 60000);
+  if (isNaN(mins) || mins < 0) return '';
+  if (mins < 60) return `${mins}m ago`;
+  return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+}
+
+function techName(techId) {
+  const t = db.techById(techId);
+  return t ? `${t.firstName || ''} ${t.lastName || ''}`.trim() || 'Unassigned' : 'Unassigned';
+}
+
+function cardHtml(job, opts = {}) {
+  const v  = db.vehicleById(job.vehicleId);
+  const c  = db.customerById(job.customerId);
+  const vehicle  = util.vehicleLabel(v)  || 'No vehicle';
+  const customer = util.customerName(c)  || 'No customer';
+  const service  = job.lineItems?.[0]?.name || job.lineItems?.[0]?.description || '';
+  const ro = job.ro || job.roNumber || '';
+  const age = fmtAge(job.updatedAt || job.scheduledDate);
+  const anim = animClass(job.status);
+  const fromBayAttr = opts.fromBay ? `data-from-bay="${opts.fromBay}"` : '';
+
+  return `
+    <div class="mon-card ${anim}" draggable="true" data-job-id="${job.id}" ${fromBayAttr}>
+      ${ro ? `<div class="mon-card-ro">${ro}</div>` : ''}
+      <div class="mon-card-vehicle">${vehicle}</div>
+      <div class="mon-card-customer">${customer}</div>
+      ${service ? `<div class="mon-card-service">${service}</div>` : ''}
+      <div class="mon-card-footer">
+        <span class="mon-card-tech">${techName(job.techId)}</span>
+        ${age ? `<span class="mon-card-age">${age}</span>` : ''}
+      </div>
+    </div>`;
+}
+
+// ── Bay board ────────────────────────────────────────────────────────────────
 function renderBays() {
   const bays = db.bays();
-  document.getElementById('bay-grid').innerHTML = bays.map((bay) => {
-    const tech = db.techById(bay.techId);
+  const el   = document.getElementById('bay-grid');
+  if (!el) return;
+
+  el.innerHTML = bays.map((bay) => {
+    const t   = db.techById(bay.techId);
     const job = db.jobs().find((j) => j.bayId === bay.id && j.status === 'in_progress');
+    const tName = t ? `${t.firstName || ''} ${t.lastName || ''}`.trim() || 'Unassigned' : 'Unassigned';
+
     let body;
     if (job) {
-      const v = db.vehicleById(job.vehicleId);
-      const c = db.customerById(job.customerId);
+      const v  = db.vehicleById(job.vehicleId);
+      const c  = db.customerById(job.customerId);
       const mk = util.makeBadge(v?.make);
+      const vehicle  = util.vehicleLabel(v)  || 'No vehicle';
+      const customer = util.customerName(c)  || 'No customer';
+      const service  = job.lineItems?.[0]?.name || job.lineItems?.[0]?.description || '';
       body = `
-        <div class="bay-job-card" draggable="true" data-job-id="${job.id}" data-from-bay="${bay.id}">
-          <span class="bay-job-make" style="background:${mk.bg};color:${mk.txt}">${mk.letter}</span>
-          <div class="bay-job-vehicle">${util.vehicleLabel(v)}</div>
-          <div class="bay-job-sub">${util.customerName(c)} · ${job.lineItems?.[0]?.name || ''}</div>
+        <div class="mon-bay-job mon-anim-glow-blue" draggable="true" data-job-id="${job.id}" data-from-bay="${bay.id}">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
+            <span class="mon-bay-make" style="background:${mk.bg};color:${mk.txt}">${mk.letter}</span>
+            <div>
+              <div class="mon-bay-vehicle">${vehicle}</div>
+              <div class="mon-bay-customer">${customer}</div>
+            </div>
+          </div>
+          ${service ? `<div class="mon-bay-service">${service}</div>` : ''}
+          <div><span class="mon-pill p-blue"><span class="mon-pill-dot" style="background:#2563EB"></span>In Progress</span></div>
         </div>`;
     } else {
-      body = `<div class="bay-empty">Available — drop a job here</div>`;
+      body = `<div class="mon-bay-empty"><span class="mon-avail-dot"></span>Available</div>`;
     }
+
     return `
-      <div class="bay-card" data-bay-id="${bay.id}">
-        <div class="bay-head">
-          <span class="bay-name">${bay.name}</span>
-          <span class="bay-tech">${tech ? tech.firstName + ' ' + tech.lastName : 'Unassigned'}</span>
+      <div class="mon-bay ${job ? 'occupied' : 'available'}" data-bay-id="${bay.id}">
+        <div class="mon-bay-head">
+          <span class="mon-bay-name">${bay.name}</span>
+          <span class="mon-bay-tech">${tName}</span>
         </div>
         ${body}
       </div>`;
   }).join('');
 
-  document.querySelectorAll('.bay-job-card').forEach((card) => {
+  // Drag events on bay job cards
+  el.querySelectorAll('.mon-bay-job').forEach((card) => {
     card.addEventListener('dragstart', () => card.classList.add('dragging'));
-    card.addEventListener('dragend', () => card.classList.remove('dragging'));
+    card.addEventListener('dragend',   () => card.classList.remove('dragging'));
   });
 
-  document.querySelectorAll('.bay-card').forEach((card) => {
-    card.addEventListener('dragover', (e) => {
+  // Drop targets on bay cards
+  el.querySelectorAll('.mon-bay').forEach((bayEl) => {
+    bayEl.addEventListener('dragover', (e) => { e.preventDefault(); bayEl.classList.add('drag-over'); });
+    bayEl.addEventListener('dragleave', () => bayEl.classList.remove('drag-over'));
+    bayEl.addEventListener('drop', (e) => {
       e.preventDefault();
-      card.classList.add('drag-over');
-    });
-    card.addEventListener('dragleave', () => card.classList.remove('drag-over'));
-    card.addEventListener('drop', (e) => {
-      e.preventDefault();
-      card.classList.remove('drag-over');
+      bayEl.classList.remove('drag-over');
       const dragging = document.querySelector('.dragging');
       if (!dragging) return;
-      const jobId = dragging.dataset.jobId;
-      const bayId = card.dataset.bayId;
+      const jobId    = dragging.dataset.jobId;
+      const bayId    = bayEl.dataset.bayId;
       const fromBayId = dragging.dataset.fromBay || null;
-
-      // Dropped a bay job back onto its own bay — no-op, nothing changed.
       if (fromBayId === bayId) return;
 
-      const bay = db.bayById(bayId);
-      // Occupied-bay guard covers all three drag paths (queue->bay, bay->bay,
-      // and implicitly protects against a stale drop after a race): never
-      // silently overwrite a job that's already in this bay.
+      const bay      = db.bayById(bayId);
       const occupied = db.jobs().some((j) => j.bayId === bayId && j.status === 'in_progress' && j.id !== jobId);
       if (occupied) {
-        toast(`${bay.name} is occupied — move that job out first.`, 'error');
+        toast(`${bay?.name || 'That bay'} is occupied — move that job out first.`, 'error');
         return;
       }
       try {
         if (fromBayId) {
           util.moveToBay(jobId, bayId);
-          toast(`Job moved to ${bay.name}.`, 'success');
+          toast(`Job moved to ${bay?.name || 'the bay'}.`, 'success');
         } else {
-          util.startJob(jobId, bayId, bay.techId);
-          toast(`Job started in ${bay.name}.`, 'success');
+          util.startJob(jobId, bayId, bay?.techId);
+          toast(`Job started in ${bay?.name || 'the bay'}.`, 'success');
         }
-        renderQueue();
+        renderCounts();
         renderBays();
+        renderLanes();
       } catch (err) {
         toast(err.message, 'error');
       }
@@ -125,30 +193,96 @@ function renderBays() {
   });
 }
 
-// Waiting-queue drop zone: only accepts a job dragged out of a bay (queue
-// cards dragged onto the queue list are a no-op — there's nowhere to move).
-// Wired once in renderLiveMonitor since #queue-list itself is never replaced,
-// only its innerHTML.
-function wireQueueDropZone() {
-  const queueList = document.getElementById('queue-list');
-  queueList.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    queueList.classList.add('drag-over');
+// ── Status lanes ─────────────────────────────────────────────────────────────
+const LANES = [
+  {
+    id:    'lane-scheduled',
+    cls:   'l-scheduled',
+    title: 'Scheduled',
+    filter: (j) => j.status === 'scheduled',
+  },
+  {
+    id:      'lane-waiting',
+    cls:     'l-waiting',
+    title:   'Queue / Waiting',
+    isQueue: true,
+    filter:  (j) => j.status === 'waiting',
+  },
+  {
+    id:    'lane-hold',
+    cls:   'l-approval',
+    title: 'On Hold',
+    filter: (j) => j.status === 'on_hold',
+  },
+  {
+    id:    'lane-ready',
+    cls:   'l-ready',
+    title: 'Ready for Pickup',
+    filter: (j) => j.status === 'ready' || j.status === 'invoiced',
+  },
+];
+
+function renderLanes() {
+  const el = document.getElementById('mon-lanes');
+  if (!el) return;
+  // Exclude in_progress (shown on bay cards) and closed/cancelled
+  const jobs = activeJobs().filter((j) => j.status !== 'in_progress');
+
+  el.innerHTML = LANES.map((lane) => {
+    const laneJobs = jobs.filter(lane.filter);
+    const cards    = laneJobs.map((j) => cardHtml(j)).join('');
+    return `
+      <div class="mon-lane ${lane.cls}" data-lane-id="${lane.id}">
+        <div class="mon-lane-head">
+          <span class="mon-lane-title">${lane.title}</span>
+          <span class="mon-lane-count">${laneJobs.length}</span>
+        </div>
+        <div class="mon-lane-cards${lane.isQueue ? ' mon-queue-cards' : ''}" id="${lane.id}">
+          ${cards || '<div class="mon-lane-empty">—</div>'}
+        </div>
+      </div>`;
+  }).join('');
+
+  // Drag events on lane cards
+  el.querySelectorAll('.mon-card[draggable="true"]').forEach((card) => {
+    card.addEventListener('dragstart', () => card.classList.add('dragging'));
+    card.addEventListener('dragend',   () => card.classList.remove('dragging'));
   });
-  queueList.addEventListener('dragleave', () => queueList.classList.remove('drag-over'));
-  queueList.addEventListener('drop', (e) => {
+}
+
+// Waiting-queue drop zone: only accepts a bay job being returned to waiting.
+// Delegated on #mon-lanes (which persists across renderLanes() re-renders)
+// with closest('#lane-waiting') check so only the right column accepts drops.
+function wireQueueDropZone() {
+  const lanesEl = document.getElementById('mon-lanes');
+  if (!lanesEl) return;
+
+  lanesEl.addEventListener('dragover', (e) => {
+    const qEl = e.target.closest('#lane-waiting');
+    if (!qEl) return;
     e.preventDefault();
-    queueList.classList.remove('drag-over');
+    qEl.classList.add('drag-over');
+  });
+  lanesEl.addEventListener('dragleave', (e) => {
+    const qEl = e.target.closest('#lane-waiting');
+    if (qEl) qEl.classList.remove('drag-over');
+  });
+  lanesEl.addEventListener('drop', (e) => {
+    const qEl = e.target.closest('#lane-waiting');
+    if (!qEl) return;
+    e.preventDefault();
+    qEl.classList.remove('drag-over');
     const dragging = document.querySelector('.dragging');
     if (!dragging) return;
     const fromBayId = dragging.dataset.fromBay;
-    if (!fromBayId) return;
+    if (!fromBayId) return;  // queue → queue drag is a no-op
     const jobId = dragging.dataset.jobId;
     try {
       util.returnToWaiting(jobId);
       toast('Job returned to the waiting queue.', 'success');
-      renderQueue();
+      renderCounts();
       renderBays();
+      renderLanes();
     } catch (err) {
       toast(err.message, 'error');
     }

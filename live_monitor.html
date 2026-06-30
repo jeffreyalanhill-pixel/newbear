@@ -6,55 +6,363 @@
 <title>Torklio — Live Monitor</title>
 <link rel="stylesheet" href="style.css">
 <style>
-  /* page-scoped LAYOUT + the one sanctioned theme exception (§5.0): darker,
-     higher-contrast, larger text, simplified layout for distance reading —
-     same font family (Inter), same badge/card/icon/brand-blue language. */
-  body{background:var(--panel)}
-  .monitor-wrap{padding:var(--s6);min-height:100vh}
-  .monitor-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--s6)}
-  .monitor-title{color:#fff;font-size:var(--t-2xl);font-weight:800;display:flex;align-items:center;gap:var(--s3)}
-  .monitor-clock{color:var(--panel-txt);font-size:var(--t-xl);font-weight:700;font-variant-numeric:tabular-nums}
-  .monitor-grid{display:grid;grid-template-columns:280px 1fr;gap:var(--s5);align-items:start}
-  @media(max-width:900px){.monitor-grid{grid-template-columns:1fr}}
-  .queue-col{display:flex;flex-direction:column;gap:var(--s3)}
-  .queue-title{color:var(--panel-txt);font-size:var(--t-sm);font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:var(--s2)}
-  .queue-card{background:var(--panel-2);border:1px solid var(--panel-rule);border-radius:var(--r-md);padding:var(--s4);cursor:grab;transition:box-shadow .15s,transform .15s}
-  .queue-card:hover{transform:translateY(-1px)}
-  .queue-card.dragging{opacity:.4}
-  .queue-top{display:flex;align-items:center;gap:var(--s2);margin-bottom:var(--s2)}
-  .queue-name{font-weight:700;color:#fff;font-size:var(--t-md)}
-  .queue-sub{color:var(--panel-txt);font-size:var(--t-13)}
-  .queue-col #queue-list.drag-over{outline:2px dashed var(--accent);outline-offset:4px;border-radius:var(--r-md)}
-  .bay-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:var(--s4)}
-  .bay-card{background:var(--panel-2);border:2px solid var(--panel-rule);border-radius:var(--r-card);padding:var(--s5);min-height:200px;transition:border-color .15s}
-  .bay-card.drag-over{border-color:var(--accent)}
-  .bay-job-card{cursor:grab}
-  .bay-job-card.dragging{opacity:.4}
-  .bay-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--s4)}
-  .bay-name{color:#fff;font-size:var(--t-xl);font-weight:800}
-  .bay-tech{color:var(--panel-txt);font-size:var(--t-13);font-weight:600}
-  .bay-job-make{width:48px;height:48px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:var(--t-lg);margin-bottom:var(--s3)}
-  .bay-job-vehicle{color:#fff;font-size:var(--t-lg);font-weight:700}
-  .bay-job-sub{color:var(--panel-txt);font-size:var(--t-base);margin-top:2px}
-  .bay-empty{color:var(--panel-txt);font-size:var(--t-base);text-align:center;padding-top:var(--s8)}
+  /* ── Live Monitor — shop floor display ───────────────────────────────────
+     Full-screen dark board for TVs and display screens. Intentionally breaks
+     from the app's light canvas: high contrast, large text, distance-readable.
+     All colours are scoped to this page. Based on the Clever Bear AutoBook
+     Live Monitor design (dark kanban, animated status cards, bay board). */
+
+  html, body {
+    background: #070D1A !important;
+    overflow: hidden;
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    color: #F8FAFC;
+    font-family: 'Hanken Grotesk', system-ui, sans-serif;
+  }
+
+  #monitor-root {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ── Top bar ──────────────────────────────────────────────────────────── */
+  .mon-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 24px;
+    background: rgba(0,0,0,0.3);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    flex-shrink: 0;
+    backdrop-filter: blur(10px);
+  }
+  .mon-brand { display: flex; align-items: center; gap: 10px; }
+  .mon-brand-name {
+    font-family: 'Archivo', sans-serif;
+    font-size: 18px;
+    font-weight: 800;
+    color: #F8FAFC;
+    letter-spacing: -0.02em;
+  }
+  .mon-brand-sub { font-size: 12px; color: #475569; margin-top: 2px; }
+
+  .mon-counts { display: flex; gap: 24px; }
+  .mon-count-item { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .mon-count-num {
+    font-family: 'Space Mono', monospace;
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .mon-count-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #475569;
+  }
+  .mon-count-item.c-blue  .mon-count-num { color: #60A5FA; }
+  .mon-count-item.c-amber .mon-count-num { color: #F59E0B; }
+  .mon-count-item.c-green .mon-count-num { color: #34D399; }
+  .mon-count-item.c-gray  .mon-count-num { color: #64748B; }
+  .mon-count-item.c-orange .mon-count-num { color: #FB923C; }
+
+  .mon-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+  .mon-clock {
+    font-family: 'Space Mono', monospace;
+    font-size: 26px;
+    font-weight: 700;
+    color: #F59E0B;
+    line-height: 1;
+  }
+  .mon-date { font-size: 12px; color: #475569; }
+
+  /* ── Body ─────────────────────────────────────────────────────────────── */
+  .mon-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 14px 20px 10px;
+    gap: 12px;
+  }
+
+  .mon-section-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #1E3A5F;
+    margin-bottom: 8px;
+  }
+
+  /* ── Bay board ────────────────────────────────────────────────────────── */
+  .mon-bays-grid { display: flex; gap: 10px; flex-wrap: wrap; }
+  .mon-bay {
+    background: #0D1526;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 10px;
+    padding: 12px 14px;
+    min-width: 190px;
+    flex: 1;
+    max-width: 280px;
+    transition: border-color .15s;
+  }
+  .mon-bay.occupied  { border-left: 3px solid #2563EB; border-color: rgba(37,99,235,0.35); }
+  .mon-bay.available { border-left: 3px solid #16A34A; border-color: rgba(22,163,74,0.2); }
+  .mon-bay.drag-over { border-color: #2563EB !important; outline: 2px dashed rgba(37,99,235,0.4); outline-offset: 2px; border-radius: 10px; }
+  .mon-bay-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .mon-bay-name {
+    font-family: 'Archivo', sans-serif;
+    font-size: 14px;
+    font-weight: 800;
+    color: #64748B;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .mon-bay-tech { font-size: 11px; color: #334155; font-weight: 600; }
+  .mon-bay-job { cursor: grab; }
+  .mon-bay-job.dragging { opacity: .4; }
+  .mon-bay-make {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-weight: 800;
+    font-size: 15px;
+    font-family: 'Archivo', sans-serif;
+    flex-shrink: 0;
+  }
+  .mon-bay-vehicle {
+    font-family: 'Archivo', sans-serif;
+    font-size: 16px;
+    font-weight: 800;
+    color: #F8FAFC;
+    line-height: 1.2;
+  }
+  .mon-bay-customer { font-size: 12px; color: #94A3B8; margin-top: 2px; }
+  .mon-bay-service  { font-size: 11px; color: #475569; margin-top: 2px; }
+  .mon-bay-empty {
+    color: #16A34A;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    opacity: 0.6;
+  }
+  .mon-avail-dot { width: 7px; height: 7px; border-radius: 50%; background: #16A34A; }
+
+  /* ── Status lanes ─────────────────────────────────────────────────────── */
+  .mon-lanes-grid {
+    display: flex;
+    gap: 10px;
+    flex: 1;
+    overflow-x: auto;
+    min-height: 0;
+  }
+  .mon-lane {
+    background: #0D1526;
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 10px;
+    padding: 10px 12px;
+    flex: 1;
+    min-width: 190px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .mon-lane-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    margin-bottom: 8px;
+    flex-shrink: 0;
+  }
+  .mon-lane-title {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #334155;
+  }
+  .mon-lane-count {
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    background: rgba(255,255,255,0.06);
+    border-radius: 8px;
+    padding: 1px 7px;
+    color: #475569;
+  }
+  .mon-lane.l-scheduled .mon-lane-title { color: #60A5FA; }
+  .mon-lane.l-waiting   .mon-lane-title { color: #A78BFA; }
+  .mon-lane.l-approval  .mon-lane-title { color: #F59E0B; }
+  .mon-lane.l-parts     .mon-lane-title { color: #FB923C; }
+  .mon-lane.l-ready     .mon-lane-title { color: #34D399; }
+
+  .mon-lane-cards {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .mon-lane-cards.drag-over {
+    outline: 2px dashed rgba(96,165,250,0.35);
+    outline-offset: 3px;
+    border-radius: 8px;
+  }
+  .mon-lane-empty {
+    color: #1E2D4A;
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+    padding: 14px 0;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  /* ── Job cards ────────────────────────────────────────────────────────── */
+  .mon-card {
+    background: #1A2540;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 10px 12px;
+    cursor: grab;
+    transition: border-color .15s, transform .15s;
+    user-select: none;
+  }
+  .mon-card:hover { transform: translateY(-1px); border-color: rgba(255,255,255,0.18); }
+  .mon-card.dragging { opacity: .4; }
+  .mon-card-ro {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: #1E3A5F;
+    margin-bottom: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .mon-card-vehicle {
+    font-family: 'Archivo', sans-serif;
+    font-size: 14px;
+    font-weight: 800;
+    color: #F8FAFC;
+    line-height: 1.25;
+  }
+  .mon-card-customer { font-size: 12px; color: #94A3B8; margin-top: 2px; }
+  .mon-card-service  { font-size: 11px; color: #475569; margin-top: 2px; }
+  .mon-card-footer   { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+  .mon-card-tech { font-size: 11px; color: #334155; font-weight: 600; }
+  .mon-card-age  { font-family: 'Space Mono', monospace; font-size: 10px; color: #1E3A5F; }
+
+  /* ── Animations (from Clever Bear design) ─────────────────────────────── */
+  @keyframes mon-shimmer {
+    0%   { background-position: -200% center; }
+    100% { background-position:  200% center; }
+  }
+  @keyframes mon-glow-blue {
+    0%,100% { box-shadow: 0 0 8px rgba(37,99,235,.3), 0 2px 8px rgba(0,0,0,.5); }
+    50%      { box-shadow: 0 0 20px rgba(37,99,235,.6), 0 0 40px rgba(37,99,235,.15), 0 2px 8px rgba(0,0,0,.5); }
+  }
+  @keyframes mon-glow-green {
+    0%,100% { box-shadow: 0 0 10px rgba(52,211,153,.3), 0 2px 8px rgba(0,0,0,.5); }
+    50%      { box-shadow: 0 0 24px rgba(52,211,153,.6), 0 0 48px rgba(52,211,153,.15), 0 2px 8px rgba(0,0,0,.5); }
+  }
+  @keyframes mon-glow-amber {
+    0%,100% { box-shadow: 0 0 10px rgba(245,158,11,.3), 0 2px 8px rgba(0,0,0,.5); }
+    50%      { box-shadow: 0 0 22px rgba(245,158,11,.6), 0 0 44px rgba(245,158,11,.12), 0 2px 8px rgba(0,0,0,.5); }
+  }
+  @keyframes mon-float {
+    0%,100% { transform: translateY(0); }
+    50%      { transform: translateY(-3px); }
+  }
+  .mon-anim-float  { animation: mon-float 4s ease-in-out infinite; will-change: transform; }
+  .mon-anim-glow-blue  { animation: mon-glow-blue 3s ease-in-out infinite; will-change: box-shadow; }
+  .mon-anim-glow-green { animation: mon-glow-green 4s ease-in-out infinite; will-change: box-shadow; }
+  .mon-anim-glow-amber { animation: mon-glow-amber 2.5s ease-in-out infinite; will-change: box-shadow; }
+  .mon-anim-shimmer {
+    background: linear-gradient(90deg, #1A2540 0%,#1A2540 40%,rgba(255,255,255,.06) 50%,#1A2540 60%,#1A2540 100%);
+    background-size: 200% auto;
+    animation: mon-shimmer 5s linear infinite;
+    will-change: background-position;
+  }
+
+  /* ── Status pill ──────────────────────────────────────────────────────── */
+  .mon-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-top: 5px;
+  }
+  .mon-pill-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+  .mon-pill.p-blue   { background: rgba(37,99,235,.2);   color: #60A5FA; }
+  .mon-pill.p-purple { background: rgba(124,58,237,.2);  color: #A78BFA; }
+  .mon-pill.p-amber  { background: rgba(245,158,11,.15); color: #F59E0B; }
+  .mon-pill.p-orange { background: rgba(251,146,60,.15); color: #FB923C; }
+  .mon-pill.p-green  { background: rgba(52,211,153,.15); color: #34D399; }
+  .mon-pill.p-gray   { background: rgba(148,163,184,.1); color: #64748B; }
+
+  @media (max-width: 1100px) {
+    .mon-bay   { min-width: 160px; }
+    .mon-lane  { min-width: 160px; }
+    .mon-counts { gap: 16px; }
+    .mon-count-num { font-size: 20px; }
+  }
+  @media (max-width: 700px) {
+    .mon-topbar { flex-wrap: wrap; gap: 10px; padding: 10px 14px; }
+    .mon-body   { padding: 10px 12px 8px; }
+    .mon-bays-grid, .mon-lanes-grid { flex-wrap: wrap; }
+  }
 </style>
 </head>
 <body>
-<div class="monitor-wrap">
-  <div class="monitor-top">
-    <div class="monitor-title">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="28" height="28"><path d="M5 17h14l-1.5-5a2 2 0 00-1.9-1.4H8.4A2 2 0 006.5 12L5 17zM5 17v2M19 17v2"/><circle cx="7.5" cy="17" r="1.5"/><circle cx="16.5" cy="17" r="1.5"/></svg>
-      Live Monitor
+<div id="monitor-root">
+  <div class="mon-topbar">
+    <div class="mon-brand">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2.5" width="22" height="22">
+        <path d="M5 17h14l-1.5-5a2 2 0 00-1.9-1.4H8.4A2 2 0 006.5 12L5 17z"/>
+        <path d="M5 17v2M19 17v2"/>
+        <circle cx="7.5" cy="17" r="1.5"/>
+        <circle cx="16.5" cy="17" r="1.5"/>
+      </svg>
+      <div>
+        <div class="mon-brand-name" id="mon-shop-name">Live Monitor</div>
+        <div class="mon-brand-sub">Real-time shop floor</div>
+      </div>
     </div>
-    <div class="monitor-clock" id="clock"></div>
+    <div class="mon-counts" id="mon-counts"></div>
+    <div class="mon-right">
+      <div class="mon-clock" id="clock"></div>
+      <div class="mon-date"  id="mon-date"></div>
+    </div>
   </div>
 
-  <div class="monitor-grid">
-    <div class="queue-col">
-      <div class="queue-title">Waiting Queue</div>
-      <div id="queue-list"></div>
+  <div class="mon-body">
+    <div>
+      <div class="mon-section-label">Bay Status</div>
+      <div class="mon-bays-grid" id="bay-grid"></div>
     </div>
-    <div class="bay-grid" id="bay-grid"></div>
+    <div style="flex:1;display:flex;flex-direction:column;min-height:0">
+      <div class="mon-section-label">Live Jobs</div>
+      <div class="mon-lanes-grid" id="mon-lanes"></div>
+    </div>
   </div>
 </div>
 
