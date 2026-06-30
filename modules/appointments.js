@@ -6,6 +6,10 @@
 import { db } from '../lib/data.js';
 import { util } from '../lib/util.js';
 import { renderNav, toast, confirmDialog } from '../lib/nav.js';
+import {
+  ensureTimingFields, getTimingStatus, getElapsedWorkMinutes, getEstimatedMinutes,
+  getScheduleDeltaMinutes, formatDuration, formatTimestamp, stampTimingEvent,
+} from '../lib/timing.js';
 
 let selectedDate = new Date().toISOString().slice(0, 10);
 let viewMode = 'day'; // day | week | month
@@ -15,6 +19,7 @@ let filterSearch = '';
 let filterTech = '';
 let filterBay = '';
 let filterType = '';
+let timingInterval = null; // single board-refresh interval for live in-progress timers
 
 // ---------------------------------------------------------------------------
 // Adapter: normalize a RepairOrder/job into the calendar's appointment shape
@@ -275,6 +280,16 @@ export function renderAppointments() {
     renderSchedule();
     renderLegend();
     if (isSchedulingAdmin()) renderAdmin();
+
+    // Live timer: refresh workflow board every 60s so in-progress elapsed times
+    // and timing badges update without a manual refresh. One interval per page load.
+    if (timingInterval) clearInterval(timingInterval);
+    timingInterval = setInterval(() => {
+      if (viewMode === 'day' && dayMode === 'workflow') renderDayWorkflowView();
+    }, 60000);
+
+    // Overlay click-away and Escape key dismiss — wired once per page load.
+    wireDrawerDismiss();
   } catch (e) {
     console.error('Error in renderAppointments:', e);
     toast('Something went wrong rendering the scheduler — see console.', 'error');
@@ -446,7 +461,31 @@ function renderDayWorkflowView() {
 
   const byStage = {};
   stagesToShow.forEach((s) => { byStage[s.id] = appts.filter((a) => a.workflowStage === s.id); });
-  let html = `<div class="wfb-board">`;
+
+  // ── Timing summary row ───────────────────────────────────────────────────────
+  const tNow = new Date();
+  const tCounts = { on_schedule: 0, watch: 0, behind: 0, overdue: 0, late: 0, dropped_off: 0 };
+  appts.forEach((a) => {
+    const ts = getTimingStatus(ensureTimingFields({ ...a._job }), tNow);
+    if (ts in tCounts) tCounts[ts]++;
+  });
+  const tTotal = Object.values(tCounts).reduce((s, n) => s + n, 0);
+  const summaryChips = [
+    tCounts.on_schedule > 0 ? `<span class="badge badge-green">${tCounts.on_schedule} on schedule</span>` : '',
+    tCounts.dropped_off > 0 ? `<span class="badge badge-amber">${tCounts.dropped_off} checked in</span>` : '',
+    tCounts.watch > 0       ? `<span class="badge badge-amber">${tCounts.watch} watch</span>` : '',
+    tCounts.behind > 0      ? `<span class="badge" style="background:#FEF2E2;color:#C2410C">${tCounts.behind} behind</span>` : '',
+    tCounts.overdue > 0     ? `<span class="badge badge-red">${tCounts.overdue} overdue</span>` : '',
+    tCounts.late > 0        ? `<span class="badge badge-red">${tCounts.late} late check-in</span>` : '',
+  ].filter(Boolean).join('');
+  const timingSummaryHtml = tTotal > 0
+    ? `<div style="display:flex;gap:var(--s2);flex-wrap:wrap;align-items:center;margin-bottom:var(--s3);padding:var(--s2) 0">
+        <span style="font-size:var(--t-xs);color:var(--ink-3);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Today's timing:</span>
+        ${summaryChips}
+       </div>`
+    : '';
+
+  let html = timingSummaryHtml + `<div class="wfb-board">`;
   stagesToShow.forEach((stage) => {
     const items = byStage[stage.id] || [];
     const extraPending = stage.id === 'estimates_requests' ? pendingForDay : [];
@@ -486,9 +525,84 @@ function pendingCardHtml(b) {
 }
 function bindPendingCards(root) {
   root.querySelectorAll('[data-pending-id]').forEach((card) => {
-    card.addEventListener('click', () => toast('Confirm this request from the Pending Requests panel to place it on a stage.'));
+    card.addEventListener('click', (e) => {
+      // Don't trigger on nested button clicks (buttons inside the drawer, not on the card itself,
+      // but guard here in case any future child elements are added to the card html).
+      if (e.target.closest('button')) return;
+      openPendingDrawer(card.dataset.pendingId);
+    });
   });
 }
+
+function openPendingDrawer(bookingId) {
+  const b = db.pendingBookings().find((x) => x.id === bookingId);
+  if (!b) { toast('Pending request not found.', 'error'); return; }
+
+  const services = (b.serviceIds || []).map((id) => db.serviceById(id)?.name).filter(Boolean).join(', ') || 'No services listed';
+  const slot = /^\d{2}:\d{2}$/.test(b.preferredSlot) ? util.fmtTime(b.preferredSlot) : (b.preferredSlot || '—');
+  const vehicle = [b.vehicle?.year, b.vehicle?.make, b.vehicle?.model].filter(Boolean).join(' ') || 'Vehicle not assigned';
+  const visitType = b.vehicle?.visitType ? util.visitTypeLabel(b.vehicle.visitType) : null;
+
+  document.getElementById('drawer-title').textContent = `Pending request — ${b.customer?.name || 'Customer not assigned'}`;
+  document.getElementById('drawer-body').innerHTML = `
+    <div class="stack">
+      <div class="row between"><span class="muted">Status</span><span class="badge badge-amber">Pending request</span></div>
+      <div class="row between"><span class="muted">Customer</span><span>${b.customer?.name || '—'}</span></div>
+      ${b.customer?.phone ? `<div class="row between"><span class="muted">Phone</span><span>${b.customer.phone}</span></div>` : ''}
+      ${b.customer?.email ? `<div class="row between"><span class="muted">Email</span><span>${b.customer.email}</span></div>` : ''}
+      <div class="row between"><span class="muted">Vehicle</span><span>${vehicle}</span></div>
+      <div class="row between"><span class="muted">Requested service</span><span>${services}</span></div>
+      <div class="row between"><span class="muted">Preferred date</span><span>${util.fmtDate(b.preferredDate)}</span></div>
+      <div class="row between"><span class="muted">Preferred time</span><span>${slot}</span></div>
+      ${visitType ? `<div class="row between"><span class="muted">Visit type</span><span>${visitType}</span></div>` : ''}
+      ${b.couponCode ? `<div class="row between"><span class="muted">Coupon</span><span class="badge badge-purple">${b.couponCode}</span></div>` : ''}
+      ${b.source ? `<div class="row between"><span class="muted">Source</span><span>${b.source}</span></div>` : ''}
+      ${b.notes ? `<div><div class="muted" style="margin-bottom:4px">Notes</div><div style="background:var(--canvas);border-radius:var(--r-md);padding:var(--s3);font-size:var(--t-13)">${b.notes}</div></div>` : ''}
+      <div class="alert" style="background:var(--canvas);border:1px solid var(--rule);border-radius:var(--r-md);padding:var(--s3);font-size:var(--t-13);color:var(--ink-3)">
+        This request has not been confirmed yet. Confirm it to add it to the workflow board.
+      </div>
+      <div class="section-label">Actions</div>
+      <div class="row wrapf" style="gap:var(--s2)">
+        ${can('create') ? `<button class="btn btn-primary btn-sm" id="pd-confirm">Confirm Request</button>` : ''}
+        <button class="btn btn-secondary btn-sm" id="pd-view-panel">View Pending Requests</button>
+        <button class="btn btn-secondary btn-sm" id="pd-close">Dismiss</button>
+      </div>
+    </div>`;
+
+  document.getElementById('pd-confirm')?.addEventListener('click', () => {
+    try {
+      util.confirmBooking(bookingId);
+      toast('Booking confirmed and placed on the board', 'success');
+      closeDrawer();
+      renderAll();
+    } catch (e) { toast(e.message, 'error'); }
+  });
+  document.getElementById('pd-view-panel')?.addEventListener('click', () => {
+    closeDrawer();
+    document.getElementById('pending-body')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  document.getElementById('pd-close')?.addEventListener('click', closeDrawer);
+
+  document.getElementById('appt-drawer-overlay').classList.add('open');
+}
+
+// Timing badge meta: maps getTimingStatus() return values → badge display
+const TIMING_BADGE_META = {
+  on_schedule:      { cls: 'badge-green',  label: 'On schedule' },
+  watch:            { cls: 'badge-amber',  label: 'Watch' },
+  behind:           { cls: '',             label: 'Behind',           style: 'background:#FEF2E2;color:#C2410C' },
+  overdue:          { cls: 'badge-red',    label: 'Overdue' },
+  on_time:          { cls: 'badge-green',  label: 'On time' },
+  late:             { cls: 'badge-red',    label: 'Late' },
+  early:            { cls: 'badge-gray',   label: 'Early' },
+  upcoming:         { cls: 'badge-gray',   label: 'Upcoming' },
+  waiting_approval: { cls: 'badge-amber',  label: 'Waiting approval' },
+  waiting_parts:    { cls: 'badge-amber',  label: 'Waiting parts' },
+  dropped_off:      { cls: 'badge-amber',  label: 'Checked in' },
+  completed:        { cls: 'badge-green',  label: 'Done' },
+  no_data:          null,
+};
+const PROGRESS_BAR_COLOR = { on_schedule: 'var(--green)', watch: 'var(--amber)', behind: '#FB923C', overdue: 'var(--red)' };
 
 function workflowCardHtml(a, allApptsSameDay) {
   const meta = STAGE_META[a.workflowStage] || STAGE_META.estimates_requests;
@@ -497,6 +611,42 @@ function workflowCardHtml(a, allApptsSameDay) {
   const quote = job.quoteId ? db.quoteById(job.quoteId) : null;
   const invoice = job.invoiceId ? db.invoiceById(job.invoiceId) : null;
   const warnings = getWarnings(a, allApptsSameDay);
+
+  // ── Timing ──────────────────────────────────────────────────────────────────
+  const tj      = ensureTimingFields({ ...job });
+  const cardNow = new Date();
+  const tStatus = getTimingStatus(tj, cardNow);
+  const tbadge  = TIMING_BADGE_META[tStatus] || null;
+  const elapsed = getElapsedWorkMinutes(tj, cardNow);
+  const estMins = getEstimatedMinutes(tj);
+  const schedTime = tj.scheduledStartAt
+    ? formatTimestamp(tj.scheduledStartAt)
+    : (job.scheduledTime ? util.fmtTime(job.scheduledTime) : null);
+  const arrivedAt   = tj.checkedInAt || tj.droppedOffAt;
+  const arrivedTime = arrivedAt ? formatTimestamp(arrivedAt) : null;
+  const inProgress  = job.status === 'in_progress' && tj.workStartedAt;
+  const pct = inProgress && estMins > 0 ? Math.min(100, Math.round((elapsed / estMins) * 100)) : null;
+  const barColor = PROGRESS_BAR_COLOR[tStatus] || 'var(--accent)';
+
+  const timingRow = (schedTime || tbadge)
+    ? `<div class="row between" style="margin-top:4px">
+        ${schedTime ? `<span class="muted" style="font-size:var(--t-xs)">Sched ${schedTime}</span>` : '<span></span>'}
+        ${tbadge ? `<span class="badge ${tbadge.cls}" style="font-size:10px;${tbadge.style || ''}">${tbadge.label}</span>` : ''}
+       </div>`
+    : '';
+  const arrivedRow = arrivedTime
+    ? `<div class="muted" style="font-size:var(--t-xs);margin-top:1px">Arrived ${arrivedTime}</div>`
+    : '';
+  const progressBlock = pct !== null
+    ? `<div class="row between" style="margin-top:4px">
+        <span class="muted" style="font-size:var(--t-xs)">${formatDuration(elapsed)} / ${formatDuration(estMins)}</span>
+        <span class="muted" style="font-size:var(--t-xs)">${pct}%</span>
+       </div>
+       <div style="height:4px;background:var(--rule);border-radius:2px;margin-top:3px;overflow:hidden">
+         <div style="height:100%;width:${pct}%;background:${barColor};border-radius:2px"></div>
+       </div>`
+    : '';
+
   return `
     <div class="wfb-card" draggable="true" data-appt-id="${a.id}" style="border-left-color:${meta.color}">
       <div class="row between"><span class="strong">${a.roNumber || 'RO pending'}</span>${a.startTime ? `<span class="muted tnum" style="font-size:var(--t-xs)">${util.fmtTime(a.startTime)}</span>` : ''}</div>
@@ -513,6 +663,9 @@ function workflowCardHtml(a, allApptsSameDay) {
         ${quote ? `<span class="badge ${util.quoteStatusMeta(quote.status).badgeClass}" style="font-size:10px">${util.quoteStatusMeta(quote.status).label}</span>` : ''}
         ${invoice ? `<span class="badge ${invoice.balance > 0 ? 'badge-amber' : 'badge-green'}" style="font-size:10px">${invoice.balance > 0 ? 'Balance due' : 'Paid'}</span>` : ''}
       </div>
+      ${timingRow}
+      ${arrivedRow}
+      ${progressBlock}
       ${warnings.length ? `<div class="wfb-warn">⚠ ${warnings[0]}${warnings.length > 1 ? ` +${warnings.length - 1} more` : ''}</div>` : ''}
     </div>`;
 }
@@ -710,6 +863,51 @@ function openDrawer(jobId) {
   const meta = util.statusMeta(job.status);
   const stageMeta = STAGE_META[a.workflowStage] || STAGE_META.estimates_requests;
 
+  // ── Timing data for drawer ──────────────────────────────────────────────────
+  const tj       = ensureTimingFields({ ...job });
+  const drawerNow = new Date();
+  const tStatus  = getTimingStatus(tj, drawerNow);
+  const tbadge   = TIMING_BADGE_META[tStatus] || null;
+  const elapsed  = getElapsedWorkMinutes(tj, drawerNow);
+  const estMins  = getEstimatedMinutes(tj);
+  const pct      = job.status === 'in_progress' && tj.workStartedAt && estMins > 0
+    ? Math.min(100, Math.round((elapsed / estMins) * 100)) : null;
+  const barColor = PROGRESS_BAR_COLOR[tStatus] || 'var(--accent)';
+
+  const timingRows = [
+    ['Scheduled',     tj.scheduledStartAt ? formatTimestamp(tj.scheduledStartAt) : (job.scheduledTime ? util.fmtTime(job.scheduledTime) : '—')],
+    ['Est. duration', formatDuration(estMins)],
+    ['Checked in',    tj.checkedInAt || tj.droppedOffAt ? formatTimestamp(tj.checkedInAt || tj.droppedOffAt) : '—'],
+    ['Work started',  formatTimestamp(tj.workStartedAt)],
+    ['Work paused',   formatTimestamp(tj.workPausedAt)],
+    ['Paused total',  tj.totalPausedMinutes > 0 ? formatDuration(tj.totalPausedMinutes) : '—'],
+    ['Elapsed',       tj.workStartedAt ? formatDuration(elapsed) : '—'],
+    ['Work completed',formatTimestamp(tj.workCompletedAt)],
+    ['Ready at',      formatTimestamp(tj.readyAt)],
+    ['Picked up',     formatTimestamp(tj.pickedUpAt)],
+  ].map(([lbl, val]) => `<div class="row between" style="font-size:var(--t-13)"><span class="muted">${lbl}</span><span>${val}</span></div>`).join('');
+
+  const progressHtml = pct !== null
+    ? `<div class="row between" style="margin-top:var(--s2);font-size:var(--t-13)">
+        <span class="muted">Progress</span>
+        <span>${formatDuration(elapsed)} / ${formatDuration(estMins)} (${pct}%)</span>
+       </div>
+       <div style="height:6px;background:var(--rule);border-radius:3px;margin-top:6px;overflow:hidden">
+         <div style="height:100%;width:${pct}%;background:${barColor};border-radius:3px;transition:width .3s"></div>
+       </div>`
+    : '';
+
+  const historyHtml = tj.timingHistory.length
+    ? tj.timingHistory.map((h) => `
+        <div class="tl-item">
+          <div class="tl-dot"></div>
+          <div class="tl-body">
+            <div class="tl-title">${h.label}</div>
+            <div class="tl-meta">${util.fmtDateTime ? util.fmtDateTime(h.at) : h.at}</div>
+          </div>
+        </div>`).join('')
+    : `<div class="tl-item"><div class="tl-dot"></div><div class="tl-body"><div class="tl-title">No timing events recorded yet</div></div></div>`;
+
   document.getElementById('drawer-title').textContent = `${job.ro || 'Appointment'} — ${a.customerName || 'Customer not assigned'}`;
   document.getElementById('drawer-body').innerHTML = `
     <div class="stack">
@@ -722,6 +920,7 @@ function openDrawer(jobId) {
       <div class="row between"><span class="muted">Duration</span><span>~${Math.round(a.duration)} min</span></div>
       <div class="row between"><span class="muted">Workflow Stage</span><span class="badge" style="background:${stageMeta.color}22;color:${stageMeta.color}">${stageMeta.label}</span></div>
       <div class="row between"><span class="muted">Exact Status</span><span class="badge ${meta.badgeClass}">${meta.label}</span></div>
+      ${tbadge ? `<div class="row between"><span class="muted">Timing</span><span class="badge ${tbadge.cls}" style="${tbadge.style || ''}">${tbadge.label}</span></div>` : ''}
       <div class="row between"><span class="muted">Advisor</span><span>${advisor ? `${advisor.firstName} ${advisor.lastName}` : '—'}</span></div>
       <div class="row between"><span class="muted">Technician</span><span>${a.techName || 'Unassigned tech'}</span></div>
       <div class="row between"><span class="muted">Bay</span><span>${a.bayName || 'No bay assigned'}</span></div>
@@ -730,6 +929,19 @@ function openDrawer(jobId) {
       <div class="row between"><span class="muted">Linked Invoice</span><span>${invoice ? `${invoice.number} (${invoice.balance > 0 ? 'balance due' : 'paid'})` : 'No invoice linked'}</span></div>
       ${job.notes ? `<div><div class="muted" style="margin-bottom:4px">Notes</div><div style="background:var(--canvas);border-radius:var(--r-md);padding:var(--s3);font-size:var(--t-13)">${job.notes}</div></div>` : ''}
       ${warnings.length ? `<div class="alert alert-amber">⚠ ${warnings.join(' · ')}</div>` : ''}
+      <div class="section-label">Timing</div>
+      ${timingRows}
+      ${progressHtml}
+      <div class="section-label">Timing Actions</div>
+      <div class="row wrapf" style="gap:var(--s2)">
+        ${can('edit') && !tj.checkedInAt && !tj.droppedOffAt ? `<button class="btn btn-secondary btn-sm" id="drawer-stamp-checkin">Stamp Check-in</button>` : ''}
+        ${can('edit') && job.status === 'in_progress' && !tj.workStartedAt ? `<button class="btn btn-secondary btn-sm" id="drawer-stamp-start">Stamp Work Started</button>` : ''}
+        ${can('edit') && job.status === 'in_progress' && tj.workStartedAt && !tj.workPausedAt ? `<button class="btn btn-secondary btn-sm" id="drawer-stamp-pause">Pause</button>` : ''}
+        ${can('edit') && job.status === 'in_progress' && tj.workPausedAt ? `<button class="btn btn-secondary btn-sm" id="drawer-stamp-resume">Resume</button>` : ''}
+        ${can('edit') && ['ready', 'invoiced'].includes(job.status) && !tj.pickedUpAt ? `<button class="btn btn-secondary btn-sm" id="drawer-stamp-pickup">Mark Picked Up</button>` : ''}
+      </div>
+      <div class="section-label">Timing History</div>
+      <div class="timeline">${historyHtml}</div>
       <div class="section-label">Activity</div>
       <div class="timeline"><div class="tl-item"><div class="tl-dot"></div><div class="tl-body"><div class="tl-title">Created</div><div class="tl-meta">${util.fmtDateTime(job.createdAt)}</div></div></div></div>
       <div class="section-label">Actions</div>
@@ -750,12 +962,55 @@ function openDrawer(jobId) {
     </div>`;
 
   const run = (fn, msg) => { try { fn(); toast(msg, 'success'); closeDrawer(); renderAll(); } catch (e) { toast(e.message, 'error'); } };
+  const stamp = (eventType, force = false) => { try { stampTimingEvent(job.id, eventType, force); } catch (e) { /* non-fatal */ } };
+
   document.getElementById('drawer-reschedule')?.addEventListener('click', () => openRescheduleModal(job.id));
-  document.getElementById('drawer-checkin')?.addEventListener('click', () => run(() => util.checkIn(job.id), 'Checked in'));
+  // Check In: stamp checked_in / dropped_off timing event alongside workflow transition
+  document.getElementById('drawer-checkin')?.addEventListener('click', () => {
+    run(() => {
+      util.checkIn(job.id);
+      stamp(job.visitType === 'drop_off' ? 'dropped_off' : 'checked_in');
+    }, 'Checked in');
+  });
   document.getElementById('drawer-waiting-approval')?.addEventListener('click', () => run(() => util.requestApproval(job.id), 'Marked waiting approval'));
   document.getElementById('drawer-waiting-parts')?.addEventListener('click', () => run(() => moveToStage(job.id, 'waiting_parts'), 'Marked waiting on parts'));
-  document.getElementById('drawer-in-progress')?.addEventListener('click', () => run(() => util.startJob(job.id, job.bayId, job.techId), 'Marked in progress'));
-  document.getElementById('drawer-ready')?.addEventListener('click', () => run(() => util.markReady(job.id), 'Marked ready for pickup'));
+  // Mark In Progress: stamp work_started timing event alongside workflow transition
+  document.getElementById('drawer-in-progress')?.addEventListener('click', () => {
+    run(() => {
+      util.startJob(job.id, job.bayId, job.techId);
+      stamp('work_started');
+    }, 'Marked in progress');
+  });
+  // Mark Ready: stamp work_completed + ready timing events
+  document.getElementById('drawer-ready')?.addEventListener('click', () => {
+    run(() => {
+      util.markReady(job.id);
+      stamp('work_completed');
+      stamp('ready');
+    }, 'Marked ready for pickup');
+  });
+
+  // ── Timing-only actions (no workflow status change) ──────────────────────────
+  document.getElementById('drawer-stamp-checkin')?.addEventListener('click', () => {
+    stamp(job.visitType === 'drop_off' ? 'dropped_off' : 'checked_in');
+    toast('Check-in time recorded', 'success'); closeDrawer(); renderAll();
+  });
+  document.getElementById('drawer-stamp-start')?.addEventListener('click', () => {
+    stamp('work_started');
+    toast('Work start time recorded', 'success'); closeDrawer(); renderAll();
+  });
+  document.getElementById('drawer-stamp-pause')?.addEventListener('click', () => {
+    stamp('work_paused', true);
+    toast('Work paused — timer suspended', 'success'); closeDrawer(); renderAll();
+  });
+  document.getElementById('drawer-stamp-resume')?.addEventListener('click', () => {
+    stamp('work_resumed', true);
+    toast('Work resumed — timer running', 'success'); closeDrawer(); renderAll();
+  });
+  document.getElementById('drawer-stamp-pickup')?.addEventListener('click', () => {
+    stamp('picked_up');
+    toast('Picked-up time recorded', 'success'); closeDrawer(); renderAll();
+  });
   document.getElementById('drawer-noshow')?.addEventListener('click', () => markNoShow(job.id));
   document.getElementById('drawer-cancel')?.addEventListener('click', async () => {
     const ok = await confirmDialog(`Cancel ${job.ro}?`, { confirmLabel: 'Cancel appointment' });
@@ -774,6 +1029,26 @@ function openDrawer(jobId) {
 }
 window.closeDrawer = closeDrawer;
 function closeDrawer() { document.getElementById('appt-drawer-overlay').classList.remove('open'); }
+
+// Wire overlay click-away and Escape key once per page load.
+// Guard via data attribute so repeated renderAppointments() calls don't stack listeners.
+function wireDrawerDismiss() {
+  const overlay = document.getElementById('appt-drawer-overlay');
+  if (!overlay || overlay.dataset.dismissWired) return;
+  overlay.dataset.dismissWired = '1';
+
+  // Click on the backdrop (not inside the .drawer panel) closes the drawer.
+  // e.target === overlay is true only when clicking the dark backdrop itself,
+  // not when clicking any child element inside .drawer.
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeDrawer();
+  });
+
+  // Escape key closes while open.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && overlay.classList.contains('open')) closeDrawer();
+  });
+}
 
 function markNoShow(jobId) {
   try {
