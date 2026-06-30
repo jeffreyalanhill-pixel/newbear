@@ -6,6 +6,7 @@
 import { db } from '../lib/data.js';
 import { util } from '../lib/util.js';
 import { renderNav, toast, confirmDialog } from '../lib/nav.js';
+import { getCustomerReward, pointsForAmount, pointsValue, tierBadge } from '../lib/rewards.js';
 
 let ticket = null;
 let cashierId = null;
@@ -143,8 +144,22 @@ function renderTicket() {
   const services = db.services();
   const parts = db.parts();
 
+  const posInv = ticket.invoiceId ? db.invoiceById(ticket.invoiceId) : null;
+  const posCustomerId = posInv?.customerId || ticket.customerId || null;
+  const posCr = posCustomerId ? getCustomerReward(posCustomerId) : null;
+  const posCustomer = posCustomerId ? db.customerById(posCustomerId) : null;
+  const posEarnPts = posCr?.membershipStatus === 'active' ? pointsForAmount(ticket.total || 0, posCr.membershipPlanId) : 0;
+
   body.innerHTML = `
     <div class="badge ${ticket.type === 'ro_payment' ? 'badge-blue' : 'badge-green'}" style="margin-bottom:var(--s3)">${ticket.type === 'ro_payment' ? 'RO / Invoice Payment' : 'Counter Sale'}</div>
+    ${posCustomer && posCr?.membershipStatus === 'active' ? `
+    <div style="background:var(--canvas);border:1px solid var(--rule);border-radius:var(--r-md);padding:var(--s3) var(--s4);margin-bottom:var(--s3);display:flex;justify-content:space-between;align-items:center;gap:var(--s3)">
+      <div>
+        <div style="font-size:var(--t-13);font-weight:600">${util.customerName(posCustomer)} ${tierBadge(posCr.tier)}</div>
+        <div class="muted" style="font-size:var(--t-xs)">${(posCr.pointsBalance || 0).toLocaleString()} pts on file (${util.fmtMoney(pointsValue(posCr.pointsBalance || 0))}) · Est. earn today: +${posEarnPts} pts</div>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="alert('Redeem is a placeholder — point redemption is coming in a future update.')">Redeem <span class="badge badge-gray" style="font-size:9px">placeholder</span></button>
+    </div>` : ''}
     <div class="pos-line-row head"><span>Item</span><span>Qty</span><span>Unit</span><span>Total</span><span></span></div>
     ${ticket.lineItems.map(lineRow).join('') || '<div class="empty-sub" style="padding:var(--s2) 0">No lines yet.</div>'}
     ${ticket.type === 'counter_sale' ? `
