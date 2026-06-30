@@ -6,18 +6,9 @@
 <title>Torklio — Reports</title>
 <link rel="stylesheet" href="style.css">
 <style>
-  /* page-scoped LAYOUT only — §11.12. Same KPI-card/chart-card language as
-     the dashboard; no separate reports aesthetic. */
-  .reports-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--s4)}
-  @media(max-width:1000px){.reports-grid{grid-template-columns:1fr}}
-  .chart-card{padding:var(--s5)}
-  .chart-legend{display:flex;gap:var(--s4);margin-top:var(--s3);font-size:var(--t-13)}
-  .legend-item{display:flex;align-items:center;gap:6px}
-  .legend-dot{width:8px;height:8px;border-radius:50%}
-  .mix-row{display:flex;justify-content:space-between;align-items:center;padding:var(--s2) 0;border-bottom:1px solid var(--rule);font-size:var(--t-13)}
-  .mix-row:last-child{border-bottom:none}
-  .mix-bar-track{flex:1;height:8px;background:var(--canvas);border-radius:var(--r-full);margin:0 var(--s3);overflow:hidden}
-  .mix-bar-fill{height:100%;background:var(--accent);border-radius:var(--r-full)}
+  /* Reports Center — page-scoped layout. Tabs + hash-routed views. */
+  .reports-tabs{margin-bottom:var(--s5);flex-wrap:wrap}
+  .rep-sub-nav{margin-bottom:var(--s4)}
 </style>
 </head>
 <body>
@@ -27,42 +18,32 @@
   <div class="main-col">
     <header class="app-header">
       <div>
-        <div class="greeting-title">Reports</div>
-        <div class="greeting-sub">Revenue, productivity, and capacity at a glance.</div>
+        <div class="greeting-title">Reports Center</div>
+        <div class="greeting-sub">Sales, labor, inventory, and CRM at a glance.</div>
       </div>
       <div class="header-actions">
         <div class="seg" id="range-toggle">
-          <button class="active" data-range="14">14 days</button>
-          <button data-range="30">30 days</button>
+          <button data-range="7">7d</button>
+          <button class="active" data-range="30">30d</button>
+          <button data-range="90">90d</button>
+          <button data-range="365">1yr</button>
         </div>
-        <span id="reports-share-mount"></span>
         <div class="avatar" id="avatar">J</div>
       </div>
     </header>
 
     <div class="page-body">
-      <div class="reports-grid">
-        <div class="card chart-card">
-          <div class="card-title" style="margin-bottom:var(--s3)">Revenue over time</div>
-          <div id="revenue-chart"></div>
-        </div>
-        <div class="card chart-card">
-          <div class="card-title" style="margin-bottom:var(--s3)">ARO trend vs target</div>
-          <div id="aro-chart"></div>
-        </div>
-        <div class="card chart-card">
-          <div class="card-title" style="margin-bottom:var(--s3)">Tech productivity (today)</div>
-          <div id="tech-chart"></div>
-        </div>
-        <div class="card chart-card">
-          <div class="card-title" style="margin-bottom:var(--s3)">Service mix (by revenue)</div>
-          <div id="service-mix"></div>
-        </div>
-        <div class="card chart-card" style="grid-column:1/-1">
-          <div class="card-title" style="margin-bottom:var(--s3)">Capacity utilization this week</div>
-          <div id="capacity-chart"></div>
-        </div>
+      <div class="seg reports-tabs" id="reports-tabs">
+        <button data-view="overview">Overview</button>
+        <button data-view="sales">Sales &amp; Financial</button>
+        <button data-view="orders">Orders &amp; Invoices</button>
+        <button data-view="payments">Payments</button>
+        <button data-view="labor">Labor &amp; Technicians</button>
+        <button data-view="inventory">Inventory &amp; Vendors</button>
+        <button data-view="crm">CRM &amp; Marketing</button>
+        <button data-view="rewards">Rewards</button>
       </div>
+      <div id="reports-view-body"></div>
     </div>
   </div>
 </div>
@@ -70,7 +51,7 @@
 <script type="module">
   import { db } from './lib/data.js';
   db.init();
-  import('./modules/reports.js').then(m => m.renderReports());
+  import('./modules/reports/reports-app.js').then(m => m.renderReports());
 </script>
 </body>
 </html>
