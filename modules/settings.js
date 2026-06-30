@@ -7,8 +7,11 @@ import { util } from '../lib/util.js';
 import { renderNav, toast, confirmDialog } from '../lib/nav.js';
 import { auth } from '../lib/auth.js';
 import * as rewardsLib from '../lib/rewards.js';
+import * as integ from '../lib/integrations.js';
 
-const VIEWS = { shop: renderShop, services: renderServices, bays: renderBays, coupons: renderCoupons, roles: renderRolesSettings, subscription: renderSubscription, data: renderDataSettings, rewards: renderRewardsSettings };
+const VIEWS = { shop: renderShop, services: renderServices, bays: renderBays, coupons: renderCoupons, roles: renderRolesSettings, subscription: renderSubscription, data: renderDataSettings, rewards: renderRewardsSettings, integrations: renderIntegrations };
+
+let integSubView = 'cards'; // 'cards' | 'zapier'
 
 // Only owner/admin and general_manager can access Roles & Permissions.
 function canManageRoles() {
@@ -39,6 +42,8 @@ export function renderSettings() {
 
 function renderCurrentView() {
   const view = (location.hash || '#shop').slice(1);
+  // Reset integrations sub-view when leaving the integrations tab
+  if (view !== 'integrations') integSubView = 'cards';
   const fn = VIEWS[view] || VIEWS.shop;
   document.querySelectorAll('#settings-tabs button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
   fn(document.getElementById('settings-view-body'));
@@ -501,4 +506,355 @@ function renderRewardsSettings(mount) {
     db.saveRewardsPrograms(programs);
     toast('Rewards settings saved.', 'success');
   });
+}
+
+// ---------------------------------------------------------------------------
+// Integrations — Phase 1: Zapier / Webhooks
+// ---------------------------------------------------------------------------
+function renderIntegrations(mount) {
+  if (integSubView === 'zapier') {
+    renderZapierConfig(mount);
+  } else {
+    renderIntegrationCards(mount);
+  }
+}
+
+const INTEGRATION_CATALOG = [
+  {
+    id: 'zapier',
+    name: 'Zapier / Webhooks',
+    description: 'Send real-time event payloads to 6,000+ apps when bookings, quotes, invoices, and more are created or updated.',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="20" height="20"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>',
+    iconBg: 'var(--accent)',
+    iconColor: '#fff',
+    active: true,
+  },
+  {
+    id: 'sms-email',
+    name: 'SMS / Email',
+    description: 'Automate customer text messages and email sequences for appointment reminders, follow-ups, and promotions.',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><path d="M22 6l-10 7L2 6"/></svg>',
+    iconBg: '#E0E7FF',
+    iconColor: '#4F46E5',
+    active: false,
+  },
+  {
+    id: 'payments',
+    name: 'Payments',
+    description: 'Accept deposits, store payment methods on file, and let customers pay invoices online via Stripe.',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><rect x="1" y="4" width="22" height="16" rx="2"/><path d="M1 10h22"/></svg>',
+    iconBg: '#D1FAE5',
+    iconColor: '#059669',
+    active: false,
+  },
+  {
+    id: 'quickbooks',
+    name: 'QuickBooks',
+    description: 'Sync invoices, payments, and customer records to QuickBooks Online automatically after each job.',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M12 2a10 10 0 100 20A10 10 0 0012 2z"/><path d="M9 12h6M12 9v6"/></svg>',
+    iconBg: '#FEF3C7',
+    iconColor: '#D97706',
+    active: false,
+  },
+  {
+    id: 'google-calendar',
+    name: 'Google Calendar',
+    description: 'Sync confirmed appointments to staff Google Calendars and push scheduling changes in real time.',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>',
+    iconBg: '#EDE9FE',
+    iconColor: '#7C3AED',
+    active: false,
+  },
+  {
+    id: 'reviews',
+    name: 'Reviews',
+    description: 'Automatically request Google and Yelp reviews after invoice payment or job completion.',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>',
+    iconBg: '#FEE2E2',
+    iconColor: '#DC2626',
+    active: false,
+  },
+  {
+    id: 'parts-tires',
+    name: 'Parts & Tires',
+    description: 'Connect to parts ordering networks like PartsTech, OEConnection, or NAPA to order directly from your workflow.',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>',
+    iconBg: '#F0FDF4',
+    iconColor: '#15803D',
+    active: false,
+  },
+];
+
+function renderIntegrationCards(mount) {
+  mount.innerHTML = `
+    <div style="margin-bottom:var(--s4)">
+      <div class="strong" style="font-size:var(--t-lg);color:var(--ink);margin-bottom:4px">Integration Center</div>
+      <div class="muted" style="font-size:var(--t-13)">Connect Torklio to the tools your shop already uses. Zapier is available now — more integrations coming soon.</div>
+    </div>
+    <div class="integ-grid">
+      ${INTEGRATION_CATALOG.map((c) => `
+        <div class="integ-card">
+          <div class="integ-card-icon" style="background:${c.iconBg};color:${c.iconColor}">${c.icon}</div>
+          <div class="integ-card-name">${c.name}</div>
+          <div class="integ-card-desc">${c.description}</div>
+          <div class="integ-card-footer">
+            <span class="badge ${c.active ? 'badge-green' : 'badge-gray'}">${c.active ? 'Active' : 'Coming soon'}</span>
+            ${c.active
+              ? `<button class="btn btn-primary btn-sm" id="integ-open-${c.id}">Configure →</button>`
+              : `<button class="btn btn-secondary btn-sm" disabled style="opacity:.45;cursor:not-allowed">Coming soon</button>`}
+          </div>
+        </div>`).join('')}
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Future Supabase path</div><span class="badge badge-gray">not built yet</span></div>
+      <div class="card-body">
+        <p class="muted" style="font-size:var(--t-13);margin-bottom:var(--s3)">When this app moves to a real backend, integration state will live in Supabase rather than localStorage. Webhook URLs and secrets must never be stored client-side in production.</p>
+        <div style="display:flex;flex-direction:column;gap:var(--s1)">
+          ${[
+            '<code>integration_connections</code> — one row per enabled integration per shop',
+            '<code>integration_event_subscriptions</code> — which events each integration subscribes to',
+            '<code>integration_event_logs</code> — delivery attempts, status codes, retry queue',
+            'Supabase Edge Function relay — POST to the function; it holds the secret and fires the real HTTP request',
+            'Back-off retry queue and dead-letter queue after N failures',
+            'Supabase Vault or env-var secrets — never plaintext in the database',
+          ].map((t) => `
+            <div style="display:flex;gap:var(--s2);align-items:flex-start;font-size:var(--t-13);padding:var(--s1) 0">
+              <span style="color:var(--ink-3);flex-shrink:0">→</span>
+              <span class="muted">${t}</span>
+            </div>`).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('integ-open-zapier')?.addEventListener('click', () => {
+    integSubView = 'zapier';
+    renderZapierConfig(document.getElementById('settings-view-body'));
+  });
+}
+
+// ── Event groups for Zapier checklist ────────────────────────────────────────
+const EVENT_GROUP_KEYS = {
+  'Appointments':  ['bookingCreated', 'appointmentConfirmed', 'appointmentCanceled'],
+  'Repair Orders': ['repairOrderCreated', 'repairOrderStatusChanged'],
+  'Quotes':        ['quoteCreated', 'quoteSent', 'quoteApproved', 'quoteDeclined'],
+  'Finance':       ['invoiceCreated', 'invoicePaid', 'paymentReceived'],
+  'CRM':           ['customerCreated', 'leadCreated', 'followUpOverdue'],
+  'Inventory':     ['lowStockPart'],
+  'Rewards':       ['rewardsMemberEnrolled'],
+};
+
+function renderZapierConfig(mount) {
+  const z = integ.getZapierSettings();
+  const events = integ.INTEGRATION_EVENTS;
+
+  mount.innerHTML = `
+    <div class="row" style="gap:var(--s3);margin-bottom:var(--s4);align-items:center">
+      <button class="btn btn-secondary btn-sm" id="zapier-back">← Back to Integrations</button>
+      <div>
+        <span class="strong" style="font-size:var(--t-lg);color:var(--ink)">Zapier / Webhooks</span>
+        <span class="badge badge-green" style="margin-left:var(--s2)">Phase 1</span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:var(--s4)">
+      <div class="card-head"><div class="card-title">Connection</div></div>
+      <div class="card-body">
+        <div class="field" style="margin-bottom:var(--s3)">
+          <label class="check">
+            <input type="checkbox" id="z-enabled" ${z.zapierEnabled ? 'checked' : ''}>
+            <span class="strong" style="color:var(--ink)">Enable Zapier / Webhooks</span>
+          </label>
+          <div class="muted" style="font-size:var(--t-xs);margin-top:4px;margin-left:20px">When enabled, Torklio will fire the configured events to your webhook URL.</div>
+        </div>
+        <div class="field" style="margin-bottom:var(--s3)">
+          <label class="label">Webhook URL</label>
+          <input class="input" type="url" id="z-url" value="${z.zapierWebhookUrl || ''}" placeholder="https://hooks.zapier.com/hooks/catch/…">
+          <div class="muted" style="font-size:var(--t-xs);margin-top:4px">Paste your Zapier Catch Hook URL here. Treat this like a password.</div>
+        </div>
+        <div class="field" style="margin-bottom:var(--s3)">
+          <label class="label">Secret token <span class="badge badge-gray" style="font-size:10px">optional</span></label>
+          <input class="input" type="password" id="z-token" value="${z.zapierSecretToken || ''}" placeholder="sk_live_…" autocomplete="new-password">
+          <div class="muted" style="font-size:var(--t-xs);margin-top:4px">Sent as the <code>X-Torklio-Token</code> header so your endpoint can verify requests. Store server-side in production.</div>
+        </div>
+        <div class="field">
+          <label class="check">
+            <input type="checkbox" id="z-customer-data" ${z.zapierSendCustomerData ? 'checked' : ''}>
+            <span class="strong" style="color:var(--ink)">Send customer phone &amp; email</span>
+          </label>
+          <div class="muted" style="font-size:var(--t-xs);margin-top:4px;margin-left:20px">Off by default. When off, payloads include only name and customer ID — phone and email are omitted.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:var(--s4)">
+      <div class="card-head">
+        <div class="card-title">Events</div>
+        <div class="row" style="gap:var(--s2)">
+          <button class="btn btn-secondary btn-sm" id="z-select-all">Select all</button>
+          <button class="btn btn-secondary btn-sm" id="z-select-none">Clear all</button>
+        </div>
+      </div>
+      <div class="card-body">
+        ${Object.entries(EVENT_GROUP_KEYS).map(([group, keys]) => {
+          const groupEvents = keys.map((k) => events.find((e) => e.key === k)).filter(Boolean);
+          return `
+            <div class="event-group-label">${group}</div>
+            ${groupEvents.map((ev) => `
+              <div class="event-check-row">
+                <input type="checkbox" id="z-ev-${ev.key}" ${z.zapierEvents[ev.key] ? 'checked' : ''} style="flex-shrink:0;margin-top:2px">
+                <div>
+                  <label for="z-ev-${ev.key}" style="cursor:pointer;font-size:var(--t-13);font-weight:600;color:var(--ink)">${ev.label}</label>
+                  <div class="event-check-desc">${ev.description} <span class="badge badge-gray" style="font-size:9px">preview-only</span></div>
+                </div>
+              </div>`).join('')}`;
+        }).join('')}
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:var(--s4)">
+      <div class="card-head"><div class="card-title">Actions</div></div>
+      <div class="card-body">
+        <div class="row" style="gap:var(--s2);flex-wrap:wrap">
+          <button class="btn btn-primary" id="z-save-btn">Save settings</button>
+          <button class="btn btn-secondary" id="z-preview-btn">Preview payload</button>
+          <button class="btn btn-secondary" id="z-test-btn">Test webhook</button>
+        </div>
+        <div class="muted" style="font-size:var(--t-xs);margin-top:var(--s2)">Demo mode — webhook delivery is preview-only. No real HTTP requests are sent from this demo.</div>
+        <div class="webhook-result" id="z-test-result"></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:var(--s4)">
+      <div class="card-head"><div class="card-title">Privacy &amp; security</div></div>
+      <div class="card-body">
+        ${[
+          'Webhook URLs function like secrets — anyone with the URL can trigger your Zap. Do not share them.',
+          'In production, store webhook URLs and tokens in environment variables or Supabase Vault, not in the client.',
+          'Production webhook delivery should go through a Supabase Edge Function — never directly from the browser.',
+          'Customer phone and email are not included unless "Send customer phone & email" is enabled.',
+          'This demo does not guarantee delivery. Use Preview Payload to validate shape before wiring a real integration.',
+        ].map((note) => `
+          <div style="display:flex;gap:var(--s2);align-items:flex-start;padding:var(--s2) 0;border-bottom:1px solid var(--rule)">
+            <span style="color:var(--amber);flex-shrink:0">⚠</span>
+            <span class="muted" style="font-size:var(--t-13)">${note}</span>
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><div class="card-title">Future Supabase path</div><span class="badge badge-gray">not built yet</span></div>
+      <div class="card-body">
+        <div class="muted" style="font-size:var(--t-13)">Tables: <code>integration_connections</code>, <code>integration_event_subscriptions</code>, <code>integration_event_logs</code>. Backend: Supabase Edge Function relay, retry queue, delivery logs, secret encryption via Vault. Events will be emitted from server-side hooks, not the browser.</div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('zapier-back').addEventListener('click', () => {
+    integSubView = 'cards';
+    renderIntegrationCards(document.getElementById('settings-view-body'));
+  });
+
+  document.getElementById('z-select-all').addEventListener('click', () => {
+    document.querySelectorAll('[id^="z-ev-"]').forEach((cb) => { cb.checked = true; });
+  });
+  document.getElementById('z-select-none').addEventListener('click', () => {
+    document.querySelectorAll('[id^="z-ev-"]').forEach((cb) => { cb.checked = false; });
+  });
+
+  document.getElementById('z-save-btn').addEventListener('click', () => {
+    const savedEvents = {};
+    integ.INTEGRATION_EVENTS.forEach((ev) => {
+      savedEvents[ev.key] = document.getElementById(`z-ev-${ev.key}`)?.checked ?? false;
+    });
+    integ.saveZapierSettings({
+      ...integ.getZapierSettings(),
+      zapierEnabled:          document.getElementById('z-enabled').checked,
+      zapierWebhookUrl:       document.getElementById('z-url').value.trim(),
+      zapierSecretToken:      document.getElementById('z-token').value.trim(),
+      zapierSendCustomerData: document.getElementById('z-customer-data').checked,
+      zapierEvents:           savedEvents,
+    });
+    toast('Zapier settings saved.', 'success');
+  });
+
+  document.getElementById('z-preview-btn').addEventListener('click', () => {
+    openPayloadModal();
+  });
+
+  document.getElementById('z-test-btn').addEventListener('click', async () => {
+    const resultEl = document.getElementById('z-test-result');
+    resultEl.classList.add('visible');
+    resultEl.textContent = 'Running test…';
+    const result = await integ.sendZapierWebhook('quoteApproved', {});
+    if (result.sent) {
+      resultEl.innerHTML = `<span style="color:var(--green)">✓ Sent</span> — status ${result.status}`;
+    } else {
+      const payloadSnippet = result.previewPayload
+        ? `<br><br>Preview payload (would be sent in production):<br><code style="font-size:11px;word-break:break-all">${JSON.stringify(result.previewPayload).slice(0, 250)}…</code>`
+        : '';
+      resultEl.innerHTML = `<span style="color:var(--amber)">⚠ Demo mode</span> — ${result.reason}${payloadSnippet}`;
+    }
+  });
+}
+
+function openPayloadModal() {
+  document.getElementById('payload-overlay')?.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'payload-overlay';
+  overlay.className = 'payload-overlay';
+
+  overlay.innerHTML = `
+    <div class="payload-modal" role="dialog" aria-label="Payload Preview">
+      <div class="row between" style="align-items:center">
+        <div class="card-title">Payload Preview</div>
+        <button class="btn btn-secondary btn-sm" id="payload-close">✕ Close</button>
+      </div>
+      <div class="row" style="gap:var(--s2);align-items:center;flex-wrap:wrap">
+        <label class="label" style="margin:0;white-space:nowrap">Event type</label>
+        <select class="select" id="payload-event-select" style="flex:1;min-width:200px">
+          ${integ.PREVIEW_EVENTS.map((e) => `<option value="${e.key}">${e.label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="payload-note" id="payload-customer-note"></div>
+      <pre class="payload-json" id="payload-json-output"></pre>
+      <div class="row" style="gap:var(--s2);justify-content:flex-end">
+        <button class="btn btn-secondary btn-sm" id="payload-copy-btn">Copy payload</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  function refreshPayload() {
+    const key = document.getElementById('payload-event-select').value;
+    const payload = integ.previewZapierPayload(key);
+    document.getElementById('payload-json-output').textContent = JSON.stringify(payload, null, 2);
+    const z = integ.getZapierSettings();
+    const noteEl = document.getElementById('payload-customer-note');
+    if (z.zapierSendCustomerData) {
+      noteEl.textContent = 'Customer phone and email are included because "Send customer data" is enabled.';
+      noteEl.style.borderColor = 'var(--amber)';
+    } else {
+      noteEl.textContent = 'Customer phone and email are omitted. Enable "Send customer data" in Connection settings to include them.';
+      noteEl.style.borderColor = 'var(--rule)';
+    }
+  }
+
+  refreshPayload();
+
+  document.getElementById('payload-event-select').addEventListener('change', refreshPayload);
+
+  document.getElementById('payload-copy-btn').addEventListener('click', () => {
+    const text = document.getElementById('payload-json-output').textContent;
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = document.getElementById('payload-copy-btn');
+      btn.textContent = '✓ Copied';
+      setTimeout(() => { if (btn) btn.textContent = 'Copy payload'; }, 1800);
+    }).catch(() => toast('Could not copy — select the JSON and copy manually.', 'error'));
+  });
+
+  document.getElementById('payload-close').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
 }
