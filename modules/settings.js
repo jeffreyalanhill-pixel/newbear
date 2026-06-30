@@ -5,16 +5,32 @@
 import { db } from '../lib/data.js';
 import { util } from '../lib/util.js';
 import { renderNav, toast, confirmDialog } from '../lib/nav.js';
+import { auth } from '../lib/auth.js';
+import * as rewardsLib from '../lib/rewards.js';
 
-const VIEWS = { shop: renderShop, services: renderServices, bays: renderBays, coupons: renderCoupons, subscription: renderSubscription };
+const VIEWS = { shop: renderShop, services: renderServices, bays: renderBays, coupons: renderCoupons, roles: renderRolesSettings, subscription: renderSubscription, data: renderDataSettings, rewards: renderRewardsSettings };
+
+// Only owner/admin and general_manager can access Roles & Permissions.
+function canManageRoles() {
+  const emp = db.employeeById(db.settings().currentUserId);
+  if (!emp) return true; // no demo user set — fail open
+  return ['owner', 'general_manager'].includes(emp.role);
+}
 
 export function renderSettings() {
   renderNav('#icon-rail', 'settings.html');
   document.getElementById('avatar').textContent = (db.settings().owner || '?').charAt(0).toUpperCase();
 
+  // Hide Roles & Permissions tab for non-admin roles
+  if (!canManageRoles()) {
+    document.querySelector('#settings-tabs button[data-view="roles"]')?.remove();
+  }
+
   document.getElementById('settings-tabs').addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-view]');
     if (!btn) return;
+    // Guard: non-admins can't navigate to roles via URL hash either
+    if (btn.dataset.view === 'roles' && !canManageRoles()) return;
     location.hash = btn.dataset.view;
   });
   window.addEventListener('hashchange', renderCurrentView);
@@ -324,4 +340,165 @@ function renderSubscription(mount) {
       </div>
     </div>
   `;
+}
+
+// ---------------------------------------------------------------------------
+// Roles & Permissions — admin-only view moved from Team page
+// ---------------------------------------------------------------------------
+function renderRolesSettings(mount) {
+  if (!canManageRoles()) {
+    mount.innerHTML = `<div class="card"><div class="card-body"><div class="empty"><div class="empty-title">Access restricted</div><div class="empty-sub">Only Owner and General Manager can manage roles and permissions.</div></div></div></div>`;
+    return;
+  }
+
+  const roles = db.roles().filter((r) => !r.isPlatformInternal);
+  mount.innerHTML = `
+    <div class="card" style="margin-bottom:var(--s4)">
+      <div class="card-head">
+        <div class="card-title">Roles &amp; Permissions</div>
+        <span class="badge badge-gray">changes save immediately</span>
+      </div>
+      <div class="card-body">
+        <p class="muted" style="font-size:var(--t-13);margin-bottom:var(--s4)">Each role controls what employees with that role can see and do. Overrides can be set per employee in the Employees tab. These are UI-layer guards — enforce access server-side once a real backend exists.</p>
+        <div id="roles-list"></div>
+      </div>
+    </div>`;
+
+  document.getElementById('roles-list').innerHTML = roles.map((r) => `
+    <div class="role-card" style="margin-bottom:var(--s3)">
+      <div class="row between" style="margin-bottom:var(--s2)">
+        <div>
+          <span class="strong" style="color:var(--ink);font-size:var(--t-md)">${r.name}</span>
+          ${r.description ? `<div class="muted" style="font-size:var(--t-13);margin-top:2px">${r.description}</div>` : ''}
+        </div>
+        <span class="badge badge-gray">${db.employees().filter((e) => e.role === r.id).length} employee${db.employees().filter((e) => e.role === r.id).length === 1 ? '' : 's'}</span>
+      </div>
+      <div class="perm-grid">
+        ${Object.entries(r.permissions).map(([perm, val]) => `
+          <label class="check" style="font-size:var(--t-13)">
+            <input type="checkbox" data-role="${r.id}" data-perm="${perm}" ${val ? 'checked' : ''}>
+            ${perm}
+          </label>`).join('')}
+      </div>
+    </div>`).join('');
+
+  document.querySelectorAll('[data-role]').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      const roles = db.roles();
+      const role = roles.find((r) => r.id === cb.dataset.role);
+      const oldValue = role.permissions[cb.dataset.perm];
+      role.permissions[cb.dataset.perm] = cb.checked;
+      db.saveRoles(roles);
+      auth.log('role.permission_changed', 'role', role.id, { [cb.dataset.perm]: oldValue }, { [cb.dataset.perm]: cb.checked });
+      toast(`${role.name}: ${cb.dataset.perm} ${cb.checked ? 'enabled' : 'disabled'}.`);
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Data / Demo Reset
+// ---------------------------------------------------------------------------
+function renderDataSettings(mount) {
+  mount.innerHTML = `
+    <div class="card" style="margin-bottom:var(--s4)">
+      <div class="card-head"><div class="card-title">Demo Data</div></div>
+      <div class="card-body">
+        <p class="muted" style="font-size:var(--t-13);margin-bottom:var(--s4)">All data lives in your browser's localStorage. Resetting restores the full demo data set including employees, appointments, invoices, inventory, and schedule shifts.</p>
+        <div class="row" style="gap:var(--s2)">
+          <button class="btn btn-danger btn-sm" id="settings-reset-demo">Reset to Demo Data</button>
+        </div>
+        <p class="muted" style="font-size:var(--t-xs);margin-top:var(--s3)">This cannot be undone — all changes you've made in this session will be lost.</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Storage</div></div>
+      <div class="card-body">
+        <div class="row between" style="padding:6px 0"><span class="muted">Storage type</span><span>Browser localStorage</span></div>
+        <div class="row between" style="padding:6px 0"><span class="muted">Keys</span><span id="settings-storage-count" class="tnum">—</span></div>
+        <div class="row between" style="padding:6px 0"><span class="muted">Approx. size</span><span id="settings-storage-size" class="tnum">—</span></div>
+        <button class="btn btn-secondary btn-sm" style="margin-top:var(--s3)" id="settings-clear-storage">Clear All Data (hard reset)</button>
+      </div>
+    </div>`;
+
+  // Storage stats
+  let keys = 0, bytes = 0;
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith('ab_')) {
+      keys++;
+      bytes += (localStorage.getItem(k) || '').length * 2;
+    }
+  }
+  document.getElementById('settings-storage-count').textContent = `${keys} keys`;
+  document.getElementById('settings-storage-size').textContent = bytes > 1024 ? `~${(bytes / 1024).toFixed(1)} KB` : `${bytes} bytes`;
+
+  document.getElementById('settings-reset-demo').addEventListener('click', async () => {
+    const ok = await confirmDialog('Reset all data to the demo set? Every change you made will be lost.', { confirmLabel: 'Reset to Demo' });
+    if (!ok) return;
+    db.reset();
+    toast('Demo data restored — reloading…', 'success');
+    setTimeout(() => location.reload(), 500);
+  });
+  document.getElementById('settings-clear-storage').addEventListener('click', async () => {
+    const ok = await confirmDialog('Clear ALL localStorage data? The app will reload with a fresh seed.', { confirmLabel: 'Clear Everything' });
+    if (!ok) return;
+    localStorage.clear();
+    toast('Storage cleared — reloading…', 'success');
+    setTimeout(() => location.reload(), 500);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Rewards settings
+// ---------------------------------------------------------------------------
+function renderRewardsSettings(mount) {
+  const prog = rewardsLib.getRewardProgram();
+
+  mount.innerHTML = `
+    <div class="card" style="margin-bottom:var(--s4)">
+      <div class="card-head"><div class="card-title">Rewards Program</div></div>
+      <div class="card-body">
+        <div class="field"><label class="check"><input type="checkbox" id="rw-active" ${prog.isActive ? 'checked' : ''}> Program active</label></div>
+        <div class="grid-2" style="margin-top:var(--s3)">
+          <div class="field"><label class="label">Points per $1 spent</label><input class="input" type="number" id="rw-ppd" value="${prog.pointsPerDollar}" min="0.1" step="0.1"></div>
+          <div class="field"><label class="label">$ per point (redemption rate)</label><input class="input" type="number" id="rw-rate" value="${prog.redemptionRate}" min="0.001" step="0.001"></div>
+          <div class="field"><label class="label">Minimum points to redeem</label><input class="input" type="number" id="rw-min" value="${prog.minimumPointsToRedeem}" min="1" step="1"></div>
+        </div>
+        <button class="btn btn-primary" style="margin-top:var(--s3)" id="rw-save-btn">Save Rewards Settings</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:var(--s4)">
+      <div class="card-head"><div class="card-title">Membership Plans</div></div>
+      <div class="card-body">
+        ${db.membershipPlans().map(p => `
+          <div class="item-row">
+            <div>
+              <div class="strong">${p.name}</div>
+              <div class="muted" style="font-size:var(--t-13)">${p.description} · ${p.price ? '$' + p.price + '/mo' : 'Free'} · ${p.pointsMultiplier}× points</div>
+            </div>
+            <span class="badge badge-gray">${p.billingCycle || 'free'}</span>
+          </div>`).join('')}
+        <div class="muted" style="font-size:var(--t-13);margin-top:var(--s3)">Plan editing coming in a future update. Manage members from CRM → Rewards.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><div class="card-title">Birthday Reward <span class="badge badge-gray" style="font-size:10px">placeholder</span></div></div>
+      <div class="card-body">
+        <div class="muted" style="font-size:var(--t-13)">Automatic birthday point bonuses are not yet implemented. This will send a configurable point bonus to members in their birthday month.</div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('rw-save-btn').addEventListener('click', () => {
+    const programs = db.rewardsPrograms();
+    if (!programs.length) return;
+    programs[0].isActive = document.getElementById('rw-active').checked;
+    programs[0].pointsPerDollar = parseFloat(document.getElementById('rw-ppd').value) || 1;
+    programs[0].redemptionRate = parseFloat(document.getElementById('rw-rate').value) || 0.01;
+    programs[0].minimumPointsToRedeem = parseInt(document.getElementById('rw-min').value, 10) || 500;
+    db.saveRewardsPrograms(programs);
+    toast('Rewards settings saved.', 'success');
+  });
 }

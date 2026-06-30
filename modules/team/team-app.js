@@ -8,7 +8,6 @@ import { db } from '../../lib/data.js';
 import { auth } from '../../lib/auth.js';
 import { renderNav, toast } from '../../lib/nav.js';
 import { renderEmployees } from './employees.js';
-import { renderRoles } from './roles.js';
 import { renderSchedule } from './schedule.js';
 
 // Demo "View app as" switcher (role+permissions foundation task, §6).
@@ -47,9 +46,8 @@ function renderDemoSwitcher() {
 }
 
 const VIEWS = {
-  employees: renderEmployees,
-  roles: renderRoles,
   schedule: renderSchedule,
+  employees: renderEmployees,
 };
 
 // Team UI role tiers (role-presets follow-up) — Roles & Permissions is an
@@ -65,8 +63,6 @@ export function renderTeam() {
   document.getElementById('avatar').textContent = (db.settings().owner || '?').charAt(0).toUpperCase();
 
   const tier = currentTeamTier();
-  const rolesTabBtn = document.querySelector('#team-tabs button[data-view="roles"]');
-  if (tier !== 'admin') rolesTabBtn?.remove();
   const employeesTabBtn = document.querySelector('#team-tabs button[data-view="employees"]');
   if (employeesTabBtn) employeesTabBtn.textContent = tier === 'admin' ? 'Employees' : tier === 'coverage' ? 'Team' : 'My Team';
 
@@ -80,21 +76,14 @@ export function renderTeam() {
     location.hash = btn.dataset.view;
   });
 
-  // Demo-only guard, not real routing security — if the URL hash is typed
-  // directly as #roles by a non-admin tier, fall back to the employees view
-  // rather than rendering an admin tab with no way to have reached it via UI.
-  window.addEventListener('hashchange', () => {
-    if (location.hash === '#roles' && currentTeamTier() !== 'admin') { location.hash = 'employees'; return; }
-    renderCurrentView();
-  });
-  if (location.hash === '#roles' && tier !== 'admin') location.hash = 'employees';
-  else renderCurrentView();
+  window.addEventListener('hashchange', renderCurrentView);
+  renderCurrentView();
   renderDemoSwitcher();
 }
 
 function renderCurrentView() {
-  const view = (location.hash || '#employees').slice(1);
-  const fn = VIEWS[view] || VIEWS.employees;
+  const view = (location.hash || '#schedule').slice(1);
+  const fn = VIEWS[view] || VIEWS.schedule;
   document.querySelectorAll('#team-tabs button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
   fn(document.getElementById('team-view-body'));
 }
