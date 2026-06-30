@@ -10,6 +10,7 @@ import { toast } from '../../lib/nav.js';
 import { openCrmDrawer, closeCrmDrawer, isManagerView } from './crm-app.js';
 import * as workflow from '../../lib/workflow.js';
 import { openOutreachPanel } from './outreach.js';
+import * as rewards from '../../lib/rewards.js';
 
 workflow.ensureSeeded();
 
@@ -108,6 +109,47 @@ function timelineIconKey(type) {
   return 'communication';
 }
 
+function renderRewardsCard(customerId, manager) {
+  const prog = rewards.getRewardProgram();
+  if (!prog.isActive) return '';
+  const cr = rewards.getCustomerReward(customerId);
+  if (!cr || cr.membershipStatus !== 'active') {
+    return `
+      <div style="margin-top:var(--s5)">
+        <div class="section-label" style="margin-bottom:var(--s2)">Rewards</div>
+        <div class="muted" style="font-size:var(--t-13)">Not enrolled in any rewards plan.</div>
+        ${manager ? `<button class="btn btn-secondary btn-sm" style="margin-top:var(--s2)" id="cp-rw-enroll" data-rw-enroll="${customerId}">Enroll in Rewards</button>` : ''}
+      </div>`;
+  }
+  const t = rewards.tierMeta(cr.tier);
+  const plan = db.membershipPlanById(cr.membershipPlanId);
+  const val = rewards.pointsValue(cr.pointsBalance || 0);
+  return `
+    <div style="margin-top:var(--s5)">
+      <div class="row between" style="margin-bottom:var(--s2)">
+        <div class="section-label">Rewards</div>
+        <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:100px;background:${t.bg};color:${t.color};text-transform:uppercase">${t.label}</span>
+      </div>
+      <div class="grid-2" style="gap:var(--s2);margin-bottom:var(--s3)">
+        <div class="stat-card" style="padding:var(--s3)">
+          <div class="muted" style="font-size:var(--t-13)">Points balance</div>
+          <div class="stat-value tnum" style="font-size:var(--t-xl)">${(cr.pointsBalance || 0).toLocaleString()}</div>
+        </div>
+        <div class="stat-card" style="padding:var(--s3)">
+          <div class="muted" style="font-size:var(--t-13)">Redemption value</div>
+          <div class="stat-value tnum" style="font-size:var(--t-xl)">${util.fmtMoney(val)}</div>
+        </div>
+      </div>
+      <div class="muted" style="font-size:var(--t-13)">Plan: <b>${plan?.name || cr.membershipPlanId}</b> · Member since ${util.fmtDate(cr.enrolledAt)}</div>
+      ${manager ? `
+      <div class="row" style="gap:var(--s2);margin-top:var(--s2);flex-wrap:wrap">
+        <button class="btn btn-secondary btn-sm" id="cp-rw-adjust" data-rw-adjust="${customerId}">Adjust Points</button>
+        <button class="btn btn-secondary btn-sm" id="cp-rw-redeem" data-rw-redeem="${customerId}">Redeem <span class="badge badge-gray" style="font-size:9px">placeholder</span></button>
+      </div>` : ''}
+    </div>`;
+}
+
+export function openCustomerDrawer(customerId) { openProfile(customerId); }
 function openProfile(customerId) {
   const c = db.customerById(customerId);
   const vehicles = db.vehiclesForCustomer(customerId);
@@ -206,6 +248,8 @@ function openProfile(customerId) {
         ${declinedJobs.map((j) => `<div class="row between" style="padding:6px 0"><span>${j.ro}</span><span class="badge badge-red">declined</span></div>`).join('')}
       </div>` : ''}
 
+      ${renderRewardsCard(customerId, manager)}
+
       <div style="margin-top:var(--s5)">
         <div class="row between" style="margin-bottom:var(--s3)">
           <div class="section-label">Notes &amp; follow-up</div>
@@ -245,6 +289,20 @@ function openProfile(customerId) {
     openProfile(customerId);
   });
   document.getElementById('cp-outreach').addEventListener('click', () => openOutreachPanel({ customer: c }));
+  document.getElementById('cp-rw-enroll')?.addEventListener('click', () => {
+    const plans = db.membershipPlans();
+    rewards.enrollCustomer(customerId, plans[0]?.id || 'plan_free');
+    toast('Customer enrolled in Rewards.', 'success');
+    openProfile(customerId);
+  });
+  document.getElementById('cp-rw-adjust')?.addEventListener('click', () => {
+    const pts = parseInt(prompt('Points to add (use − for deduction):') || '0', 10);
+    if (!pts) return;
+    rewards.awardPoints(customerId, pts, 'Manual adjustment from CRM', 'manual');
+    toast(`${pts > 0 ? '+' : ''}${pts} pts recorded.`, 'success');
+    openProfile(customerId);
+  });
+  document.getElementById('cp-rw-redeem')?.addEventListener('click', () => toast('Redeem is a placeholder — point redemption will be available in a future update.'));
   document.getElementById('cp-add-note').addEventListener('click', () => toast('Add note is a placeholder — there is no persisted note field on Customer yet.'));
   document.getElementById('cp-schedule-followup').addEventListener('click', () => {
     workflow.createFollowUpTask({ title: `Follow up with ${util.customerName(c)}`, reason: 'Manually scheduled from CRM', customerId: c.id, relatedType: 'customer', relatedId: c.id });

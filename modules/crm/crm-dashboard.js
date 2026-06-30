@@ -9,6 +9,7 @@ import { db } from '../../lib/data.js';
 import { util } from '../../lib/util.js';
 import * as workflow from '../../lib/workflow.js';
 import { openOutreachPanel } from './outreach.js';
+import { openCrmDrawer, closeCrmDrawer } from './crm-app.js';
 
 export function renderCrmDashboard(mount) {
   const leads = db.leads();
@@ -28,37 +29,37 @@ export function renderCrmDashboard(mount) {
 
   mount.innerHTML = `
     <div class="grid-3" style="margin-bottom:var(--s4)">
-      <div class="stat-card">
+      <div class="stat-card" style="cursor:pointer" data-drill="high-value">
         <div class="stat-head"><span class="stat-icon purple">${iconStar()}</span><span class="stat-label">High-Value Customers <span class="badge badge-amber" style="font-size:10px;margin-left:4px">assumption</span></span></div>
         <div class="stat-value">${highValue}</div>
-        <div class="stat-sub">$400+ lifetime invoiced — documented MVP cutoff</div>
+        <div class="stat-sub">$400+ lifetime invoiced — tap to view</div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card" style="cursor:pointer" data-drill="declined-work">
         <div class="stat-head"><span class="stat-icon red">${iconAlert()}</span><span class="stat-label">Declined Work</span></div>
         <div class="stat-value tnum">${util.fmtMoney0(declinedValue)}</div>
-        <div class="stat-sub">${declinedCustomers.length} customer${declinedCustomers.length === 1 ? '' : 's'} with declined work</div>
+        <div class="stat-sub">${declinedCustomers.length} customer${declinedCustomers.length === 1 ? '' : 's'} — tap to view</div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card" style="cursor:pointer" data-drill="due-service">
         <div class="stat-head"><span class="stat-icon amber">${iconWrench()}</span><span class="stat-label">Due for Service</span></div>
         <div class="stat-value">${dueService}</div>
-        <div class="stat-sub">oil change or tire rotation overdue</div>
+        <div class="stat-sub">oil change or tire rotation — tap to view</div>
       </div>
     </div>
     <div class="grid-3" style="margin-bottom:var(--s4)">
-      <div class="stat-card">
+      <div class="stat-card" style="cursor:pointer" data-drill="unassigned-leads">
         <div class="stat-head"><span class="stat-icon ${unassigned.length ? 'amber' : 'green'}">${iconUsers()}</span><span class="stat-label">Unassigned Leads</span></div>
         <div class="stat-value">${unassigned.length}</div>
-        <div class="stat-sub">${stale.length} stale lead${stale.length === 1 ? '' : 's'} (no contact in 7+ days)</div>
+        <div class="stat-sub">${stale.length} stale — tap to assign</div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card" style="cursor:pointer" data-drill="overdue-followups">
         <div class="stat-head"><span class="stat-icon ${overdue.length ? 'red' : 'green'}">${iconClock()}</span><span class="stat-label">Overdue Follow-ups</span></div>
         <div class="stat-value">${overdue.length}</div>
-        <div class="stat-sub">across the whole team</div>
+        <div class="stat-sub">across the whole team — tap to view</div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card" style="cursor:pointer" data-drill="pipeline">
         <div class="stat-head"><span class="stat-icon blue">${iconTrend()}</span><span class="stat-label">Pipeline Value</span></div>
         <div class="stat-value tnum">${util.fmtMoney0(pipelineValue)}</div>
-        <div class="stat-sub">${pendingQuotes.length} quote${pendingQuotes.length === 1 ? '' : 's'} waiting approval</div>
+        <div class="stat-sub">${pendingQuotes.length} quote${pendingQuotes.length === 1 ? '' : 's'} — tap to view</div>
       </div>
     </div>
 
@@ -113,6 +114,16 @@ export function renderCrmDashboard(mount) {
 
   renderFollowUps();
   renderActivity();
+
+  mount.querySelectorAll('[data-drill]').forEach((card) => card.addEventListener('click', () => {
+    const drill = card.dataset.drill;
+    if (drill === 'high-value') drillHighValue();
+    else if (drill === 'declined-work') drillDeclinedWork();
+    else if (drill === 'due-service') drillDueService();
+    else if (drill === 'unassigned-leads') drillUnassignedLeads();
+    else if (drill === 'overdue-followups') drillOverdueFollowUps();
+    else if (drill === 'pipeline') drillPipeline();
+  }));
 }
 
 const TL_ICON = {
@@ -183,6 +194,260 @@ function renderFollowUps() {
       openOutreachPanel(row.lead ? { lead: row.lead } : { customer: row.customer });
     });
   });
+}
+
+// ---------------------------------------------------------------------------
+// Drill-down drawers — one per metric card
+// ---------------------------------------------------------------------------
+
+function drawerHeader(title, count) {
+  return `
+    <div class="modal-head" style="padding:var(--s5)">
+      <div><div class="modal-title">${title}</div>${count != null ? `<div class="muted" style="font-size:var(--t-13)">${count} record${count === 1 ? '' : 's'}</div>` : ''}</div>
+      <button class="icon-btn" id="close-drill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>`;
+}
+function wireDrillClose() {
+  document.getElementById('close-drill')?.addEventListener('click', closeCrmDrawer);
+}
+function wireCustomerRows(mount) {
+  mount.querySelectorAll('[data-drill-customer]').forEach((row) => row.addEventListener('click', (e) => {
+    if (e.target.closest('[data-stop-row]')) return;
+    import('./customers.js').then((m) => m.openCustomerDrawer(row.dataset.drillCustomer));
+  }));
+}
+function wireLeadRows(mount) {
+  mount.querySelectorAll('[data-drill-lead]').forEach((row) => row.addEventListener('click', (e) => {
+    if (e.target.closest('[data-stop-row]')) return;
+    import('./leads.js').then((m) => m.openLeadDrawer(row.dataset.drillLead));
+  }));
+}
+function wireFollowUpRows(mount) {
+  mount.querySelectorAll('[data-drill-fu]').forEach((row) => row.addEventListener('click', () => {
+    import('./crm-drawers.js').then((m) => m.openFollowUpDrawer(row.dataset.drillFu));
+  }));
+}
+function wireQuoteRows(mount) {
+  mount.querySelectorAll('[data-drill-quote]').forEach((row) => row.addEventListener('click', (e) => {
+    if (e.target.closest('[data-stop-row]')) return;
+    import('./crm-drawers.js').then((m) => m.openQuoteDrawer(row.dataset.drillQuote));
+  }));
+}
+
+function drillHighValue() {
+  const customers = db.segmentMembers('seg_high_value');
+  const employees = db.employees();
+  const empName = (id) => { const e = employees.find((x) => x.id === id); return e ? `${e.firstName} ${e.lastName}` : 'Unassigned'; };
+  const html = customers.length ? customers.map((c) => {
+    const ltv = util.customerLifetimeValue(c.id);
+    const ownerId = workflow.customerOwnerId(c);
+    const nextActions = workflow.nextBestActionsForCustomer(c);
+    return `<div class="cust-row" style="cursor:pointer;flex-wrap:wrap;gap:var(--s2)" data-drill-customer="${c.id}">
+      <div style="flex:1;min-width:0">
+        <div class="strong">${util.customerName(c)}</div>
+        <div class="muted" style="font-size:var(--t-13)">${c.phone || 'No phone'}${c.email ? ' · ' + c.email : ''}</div>
+        ${nextActions.length ? `<div class="muted" style="font-size:var(--t-13);margin-top:2px">Next: ${nextActions[0].recommendation}</div>` : ''}
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div class="tnum strong">${util.fmtMoney(ltv)}</div>
+        <div class="muted" style="font-size:var(--t-13)">${empName(ownerId)}</div>
+      </div>
+    </div>`;
+  }).join('') : '<div class="empty-sub">No high-value customers yet. Rule: $400+ lifetime invoiced.</div>';
+
+  openCrmDrawer(drawerHeader('High-Value Customers', customers.length) +
+    `<div style="padding:0 var(--s5) var(--s5)">
+      <div class="alert alert-amber" style="margin-bottom:var(--s4);font-size:var(--t-13)">Rule: lifetime invoiced ≥ $400 (MVP assumption cutoff — not a configurable setting yet).</div>
+      ${html}
+    </div>`);
+  wireDrillClose();
+  wireCustomerRows(document.getElementById('crm-drawer'));
+}
+
+function drillDeclinedWork() {
+  const candidates = workflow.getDeclinedWorkCandidates();
+  const html = candidates.length ? candidates.map((d) => {
+    const c = d.customer;
+    if (!c) return '';
+    const vehicles = db.vehiclesForCustomer(c.id);
+    const vehicle = vehicles[0];
+    const ownerId = workflow.customerOwnerId(c);
+    const employees = db.employees();
+    const empName = (id) => { const e = employees.find((x) => x.id === id); return e ? `${e.firstName} ${e.lastName}` : 'Unassigned'; };
+    const openFU = workflow.openFollowUpTasks().find((t) => t.customerId === c.id && t.taskType === 'declined_work');
+    return `<div class="cust-row" style="cursor:pointer;flex-direction:column;align-items:flex-start;gap:var(--s2)" data-drill-customer="${c.id}">
+      <div class="row between" style="width:100%">
+        <div class="strong">${util.customerName(c)}</div>
+        <span class="tnum strong">${util.fmtMoney0(d.declinedValue)}</span>
+      </div>
+      <div class="muted" style="font-size:var(--t-13)">${vehicle ? util.vehicleLabel(vehicle) : 'No vehicle on file'} · Owner: ${empName(ownerId)}</div>
+      <div class="muted" style="font-size:var(--t-13)">${d.items.map((i) => i.label || 'Declined item').join(', ')}</div>
+      ${openFU ? `<div class="muted" style="font-size:var(--t-13)">Follow-up: ${util.fmtDate(openFU.dueAt)}</div>` : '<div class="muted" style="font-size:var(--t-13)">No follow-up scheduled</div>'}
+      <div class="row" style="gap:var(--s2)" data-stop-row>
+        <button class="btn btn-secondary btn-sm" data-outreach-declined="${c.id}">Outreach</button>
+      </div>
+    </div>`;
+  }).join('') : '<div class="empty-sub">No declined-work candidates on record.</div>';
+
+  openCrmDrawer(drawerHeader('Declined Work Follow-ups', candidates.length) +
+    `<div style="padding:0 var(--s5) var(--s5)">${html}</div>`);
+  wireDrillClose();
+  const drawer = document.getElementById('crm-drawer');
+  wireCustomerRows(drawer);
+  drawer.querySelectorAll('[data-outreach-declined]').forEach((btn) => btn.addEventListener('click', () => {
+    const c = db.customerById(btn.dataset.outreachDeclined);
+    if (c) openOutreachPanel({ customer: c });
+  }));
+}
+
+function drillDueService() {
+  const oilCustomers = db.segmentMembers('seg_due_oil');
+  const tireCustomers = db.segmentMembers('seg_due_tire');
+  const seenIds = new Set();
+  const combined = [...oilCustomers.map((c) => ({ c, reason: 'Oil change due' })), ...tireCustomers.map((c) => ({ c, reason: 'Tire rotation due' }))].filter(({ c }) => {
+    if (seenIds.has(c.id)) return false;
+    seenIds.add(c.id);
+    return true;
+  });
+  const employees = db.employees();
+  const empName = (id) => { const e = employees.find((x) => x.id === id); return e ? `${e.firstName} ${e.lastName}` : 'Unassigned'; };
+
+  const html = combined.length ? combined.map(({ c, reason }) => {
+    const vehicles = db.vehiclesForCustomer(c.id);
+    const vehicle = vehicles[0];
+    const timeline = db.customerTimeline(c.id);
+    const lastVisit = timeline[0];
+    const ownerId = workflow.customerOwnerId(c);
+    return `<div class="cust-row" style="cursor:pointer;flex-direction:column;align-items:flex-start;gap:var(--s2)" data-drill-customer="${c.id}">
+      <div class="row between" style="width:100%">
+        <div class="strong">${util.customerName(c)}</div>
+        <span class="badge badge-amber">${reason}</span>
+      </div>
+      <div class="muted" style="font-size:var(--t-13)">${vehicle ? util.vehicleLabel(vehicle) : 'No vehicle'} · ${empName(ownerId)}</div>
+      <div class="muted" style="font-size:var(--t-13)">Last service: ${lastVisit ? util.fmtDate(lastVisit.at) : 'No service history'}</div>
+      <div data-stop-row><button class="btn btn-secondary btn-sm" data-outreach-service="${c.id}">Send reminder</button></div>
+    </div>`;
+  }).join('') : '<div class="empty-sub">No customers currently due for service.</div>';
+
+  openCrmDrawer(drawerHeader('Due for Service', combined.length) +
+    `<div style="padding:0 var(--s5) var(--s5)">${html}</div>`);
+  wireDrillClose();
+  const drawer = document.getElementById('crm-drawer');
+  wireCustomerRows(drawer);
+  drawer.querySelectorAll('[data-outreach-service]').forEach((btn) => btn.addEventListener('click', () => {
+    const c = db.customerById(btn.dataset.outreachService);
+    if (c) openOutreachPanel({ customer: c });
+  }));
+}
+
+function drillUnassignedLeads() {
+  const leads = workflow.unassignedLeads().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const advisors = db.employees().filter((e) => !['technician', 'apprentice', 'parts'].includes(e.role));
+  const me = db.employeeById(db.settings().currentUserId);
+
+  const html = leads.length ? leads.map((l) => {
+    const ageMs = Date.now() - new Date(l.createdAt).getTime();
+    const stale = ageMs > 7 * 86400000;
+    return `<div class="lead-card" style="cursor:pointer" data-drill-lead="${l.id}">
+      <div class="lc-head">
+        <div>
+          <div class="lc-name">${l.firstName} ${l.lastName}</div>
+          <div class="lc-sub">${l.phone || 'No phone'}${l.email ? ' · ' + l.email : ''}</div>
+        </div>
+        <span class="badge ${stale ? 'badge-red' : 'badge-amber'}">Unassigned${stale ? ' · Stale' : ''}</span>
+      </div>
+      <div class="lc-sub">${(l.serviceInterest || []).join(', ') || 'No service interest noted'}</div>
+      <div class="lc-meta">
+        <span class="badge badge-gray">${sourceLabel(l.source)}</span>
+        <span class="badge badge-gray">${util.timeAgo(l.createdAt)}</span>
+        ${l.priority === 'high' ? '<span class="badge badge-red">High priority</span>' : ''}
+      </div>
+      <div class="lc-actions" data-stop-row>
+        <select class="select" data-assign-lead="${l.id}" style="width:auto;font-size:var(--t-13)">
+          <option value="">Assign to…</option>
+          ${advisors.map((e) => `<option value="${e.id}">${e.firstName} ${e.lastName}</option>`).join('')}
+        </select>
+        ${me ? `<button class="btn btn-secondary btn-sm" data-claim-lead="${l.id}">Assign to me</button>` : ''}
+      </div>
+    </div>`;
+  }).join('') : '<div class="empty-sub">No unassigned leads — great!</div>';
+
+  openCrmDrawer(drawerHeader('Unassigned Leads', leads.length) +
+    `<div style="padding:0 var(--s5) var(--s5)">${html}</div>`);
+  wireDrillClose();
+  const drawer = document.getElementById('crm-drawer');
+  wireLeadRows(drawer);
+  drawer.querySelectorAll('[data-assign-lead]').forEach((sel) => sel.addEventListener('change', () => {
+    if (!sel.value) return;
+    workflow.assignLeadOwner(sel.dataset.assignLead, sel.value);
+    import('../../lib/nav.js').then((m) => m.toast('Lead assigned.', 'success'));
+    drillUnassignedLeads();
+  }));
+  drawer.querySelectorAll('[data-claim-lead]').forEach((btn) => btn.addEventListener('click', () => {
+    workflow.assignLeadOwner(btn.dataset.claimLead, me.id);
+    import('../../lib/nav.js').then((m) => m.toast('Lead assigned to you.', 'success'));
+    drillUnassignedLeads();
+  }));
+}
+
+function drillOverdueFollowUps() {
+  const tasks = workflow.overdueFollowUpTasks().sort((a, b) => new Date(a.dueAt) - new Date(b.dueAt));
+  const employees = db.employees();
+  const empName = (id) => { const e = employees.find((x) => x.id === id); return e ? `${e.firstName} ${e.lastName}` : 'Unassigned'; };
+  const relName = (t) => {
+    if (t.customerId) { const c = db.customerById(t.customerId); return c ? util.customerName(c) : null; }
+    if (t.relatedType === 'lead' && t.relatedId) { const l = db.leadById(t.relatedId); return l ? `${l.firstName} ${l.lastName}` : null; }
+    return null;
+  };
+
+  const html = tasks.length ? tasks.map((t) => {
+    const related = relName(t);
+    return `<div class="followup-row" style="cursor:pointer" data-drill-fu="${t.id}">
+      <div>
+        <div class="strong" style="color:var(--ink)">${t.title || 'Follow-up'}</div>
+        <div class="muted" style="font-size:var(--t-13)">${empName(t.ownerId)} · <span style="color:var(--red)">Overdue</span> ${util.fmtDate(t.dueAt)}${related ? ' · ' + related : ''}${t.reason ? ' · ' + t.reason : ''}</div>
+      </div>
+      <span class="badge badge-gray">${(t.taskType || 'other').replace(/_/g, ' ')}</span>
+    </div>`;
+  }).join('') : '<div class="empty-sub">No overdue follow-ups — the team is caught up!</div>';
+
+  openCrmDrawer(drawerHeader('Overdue Follow-ups', tasks.length) +
+    `<div style="padding:0 var(--s5) var(--s5)">${html}</div>`);
+  wireDrillClose();
+  wireFollowUpRows(document.getElementById('crm-drawer'));
+}
+
+function drillPipeline() {
+  const quotes = db.quotes().filter((q) => ['sent', 'viewed', 'partially_approved'].includes(q.status)).sort((a, b) => (b.total || 0) - (a.total || 0));
+  const employees = db.employees();
+  const empName = (id) => { const e = employees.find((x) => x.id === id); return e ? `${e.firstName} ${e.lastName}` : 'Unassigned'; };
+
+  const html = quotes.length ? quotes.map((q) => {
+    const c = q.customerId ? db.customerById(q.customerId) : null;
+    const meta = util.quoteStatusMeta(q.status);
+    const openFU = workflow.openFollowUpTasks().find((t) => t.relatedId === q.id || t.customerId === q.customerId);
+    return `<div class="cust-row" style="cursor:pointer;flex-direction:column;align-items:flex-start;gap:var(--s2)" data-drill-quote="${q.id}">
+      <div class="row between" style="width:100%">
+        <div><div class="strong">${q.quoteNumber || 'Quote'}</div><div class="muted" style="font-size:var(--t-13)">${c ? util.customerName(c) : 'No customer'} · ${empName(q.advisorId)}</div></div>
+        <span class="row" style="gap:6px"><span class="tnum strong">${util.fmtMoney(q.total)}</span><span class="badge ${meta.badgeClass}" style="font-size:10px">${meta.label}</span></span>
+      </div>
+      <div class="muted" style="font-size:var(--t-13)">Sent: ${q.sentAt ? util.fmtDate(q.sentAt) : 'Not sent'} · Follow-up: ${openFU ? util.fmtDate(openFU.dueAt) : 'No follow-up scheduled'}</div>
+      <div data-stop-row>
+        ${c ? `<button class="btn btn-secondary btn-sm" data-outreach-quote="${q.customerId}" data-qid="${q.id}">Send follow-up</button>` : ''}
+      </div>
+    </div>`;
+  }).join('') : '<div class="empty-sub">No quotes currently waiting on approval.</div>';
+
+  openCrmDrawer(drawerHeader('Pipeline — Quotes Waiting Approval', quotes.length) +
+    `<div style="padding:0 var(--s5) var(--s5)">${html}</div>`);
+  wireDrillClose();
+  const drawer = document.getElementById('crm-drawer');
+  wireQuoteRows(drawer);
+  drawer.querySelectorAll('[data-outreach-quote]').forEach((btn) => btn.addEventListener('click', () => {
+    const c = db.customerById(btn.dataset.outreachQuote);
+    const q = db.quotes().find((x) => x.id === btn.dataset.qid);
+    if (c) openOutreachPanel({ customer: c, quote: q });
+  }));
 }
 
 function sourceLabel(s) {

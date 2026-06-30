@@ -72,11 +72,22 @@
     <div class="page-body">
       <div id="crm-banner" style="margin-bottom:var(--s4)"></div>
       <div class="seg crm-tabs" id="crm-tabs">
-        <button data-view="workspace" data-manager-hide>My Workspace</button>
+        <!-- Manager tabs -->
         <button data-view="dashboard" data-manager-only>Command Center</button>
+        <button data-view="workspace" data-manager-only>My CRM</button>
+        <button data-view="team-crm" data-manager-only>Team CRM</button>
         <button data-view="pipeline" data-manager-only>Pipeline</button>
-        <button data-view="leads">Leads</button>
-        <button data-view="customers">Customers</button>
+        <button data-view="followups" data-manager-only>Follow-Ups</button>
+        <button data-view="customers" data-manager-only>Customers</button>
+        <button data-view="activity" data-manager-only>Activity</button>
+        <button data-view="reports" data-manager-only>Reports</button>
+        <button data-view="rewards" data-manager-only>Rewards</button>
+        <!-- Non-manager tabs -->
+        <button data-view="workspace" data-manager-hide>My CRM</button>
+        <button data-view="my-leads" data-manager-hide>My Leads</button>
+        <button data-view="my-followups" data-manager-hide>My Follow-Ups</button>
+        <button data-view="my-customers" data-manager-hide>My Customers</button>
+        <button data-view="activity" data-manager-hide>Activity</button>
       </div>
       <div id="crm-view-body"></div>
     </div>
@@ -90,7 +101,16 @@
 <script type="module">
   import { db } from './lib/data.js';
   db.init();
-  import('./modules/crm/crm-app.js').then(m => m.renderCrm());
+  import('./modules/crm/crm-app.js').then(m => {
+    m.renderCrm();
+    // Deep-link: crm.html?customerId=<id> opens that customer's drawer immediately.
+    const customerId = new URLSearchParams(location.search).get('customerId');
+    if (customerId && db.customerById(customerId)) {
+      import('./modules/crm/customers.js').then(cm => cm.openCustomerDrawer(customerId));
+    } else if (customerId) {
+      import('./lib/nav.js').then(n => n.toast('Customer record not found.', 'error'));
+    }
+  });
 </script>
 </body>
 </html>

@@ -9,6 +9,7 @@ import { util } from '../../lib/util.js';
 import { toast, confirmDialog } from '../../lib/nav.js';
 import * as workflow from '../../lib/workflow.js';
 import { openOutreachPanel } from './outreach.js';
+import { openFollowUpDrawer, openQuoteDrawer } from './crm-drawers.js';
 
 export function renderMyWorkspace(mount) {
   const me = db.employeeById(db.settings().currentUserId);
@@ -136,43 +137,57 @@ function renderFollowUps(tasks) {
     ? tasks.map((t) => {
         const overdue = new Date(t.dueAt).getTime() < now;
         return `
-        <div class="followup-row">
+        <div class="followup-row" style="cursor:pointer" data-open-fu="${t.id}">
           <div>
             <div class="strong" style="color:var(--ink)">${t.title}</div>
             <div class="muted" style="font-size:var(--t-13)">${overdue ? '<span class="red">Overdue</span> · ' : ''}Due ${util.fmtDate(t.dueAt)}${t.reason ? ` · ${t.reason}` : ''}</div>
           </div>
-          <button class="btn btn-secondary btn-sm" data-complete-task="${t.id}">Mark done</button>
+          <button class="btn btn-secondary btn-sm" data-complete-task="${t.id}" data-stop-row>Mark done</button>
         </div>`;
       }).join('')
     : '<div class="empty-sub">No follow-up scheduled.</div>';
 
+  document.querySelectorAll('[data-open-fu]').forEach((row) => row.addEventListener('click', (e) => {
+    if (e.target.closest('[data-stop-row]')) return;
+    openFollowUpDrawer(row.dataset.openFu);
+  }));
   document.querySelectorAll('[data-complete-task]').forEach((btn) => btn.addEventListener('click', () => openOutcomeModal(btn.dataset.completeTask)));
 }
 
 function renderNextActions(actions) {
   document.getElementById('my-next-actions').innerHTML = actions.length
     ? actions.map((a) => `
-      <div class="followup-row">
+      <div class="followup-row" style="cursor:pointer" data-nba-kind="${a.kind}" data-nba-id="${a.record.id}">
         <div>
           <div class="strong" style="color:var(--ink)">${a.name}</div>
           <div class="muted" style="font-size:var(--t-13)">${a.title} — ${a.recommendation}</div>
         </div>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="flex-shrink:0;color:var(--ink-3)"><path d="M9 18l6-6-6-6"/></svg>
       </div>`).join('')
     : '<div class="empty-sub">Nothing urgent — you\'re caught up.</div>';
+
+  document.querySelectorAll('[data-nba-kind]').forEach((row) => row.addEventListener('click', () => {
+    if (row.dataset.nbaKind === 'lead') import('./leads.js').then((m) => m.openLeadDrawer(row.dataset.nbaId));
+    else import('./customers.js').then((m) => m.openCustomerDrawer(row.dataset.nbaId));
+  }));
 }
 
 function renderMyLeads(leads) {
   document.getElementById('my-leads').innerHTML = leads.length
     ? leads.map((l) => `
-      <div class="followup-row">
+      <div class="followup-row" style="cursor:pointer" data-open-lead="${l.id}">
         <div>
           <div class="strong" style="color:var(--ink)">${l.firstName} ${l.lastName}</div>
           <div class="muted" style="font-size:var(--t-13)">${l.lastContactedAt ? `Last contacted ${util.fmtDate(l.lastContactedAt)}` : 'Not contacted yet'}</div>
         </div>
-        <button class="btn btn-secondary btn-sm" data-outreach-lead="${l.id}">Outreach</button>
+        <button class="btn btn-secondary btn-sm" data-outreach-lead="${l.id}" data-stop-row>Outreach</button>
       </div>`).join('')
     : '<div class="empty-sub">No leads assigned to you.</div>';
 
+  document.querySelectorAll('[data-open-lead]').forEach((row) => row.addEventListener('click', (e) => {
+    if (e.target.closest('[data-stop-row]')) return;
+    import('./leads.js').then((m) => m.openLeadDrawer(row.dataset.openLead));
+  }));
   document.querySelectorAll('[data-outreach-lead]').forEach((btn) => btn.addEventListener('click', () => {
     openOutreachPanel({ lead: db.leadById(btn.dataset.outreachLead) });
   }));
@@ -182,9 +197,11 @@ function renderMyQuotes(quotes) {
   document.getElementById('my-quotes').innerHTML = quotes.length
     ? quotes.map((q) => {
         const c = db.customerById(q.customerId);
-        return `<div class="row between" style="padding:6px 0;border-bottom:1px solid var(--rule)"><span>${q.quoteNumber} — ${util.customerName(c) || 'Customer not assigned'}</span><span class="row" style="gap:6px"><span class="tnum">${util.fmtMoney(q.total)}</span><span class="badge ${util.quoteStatusMeta(q.status).badgeClass}">${util.quoteStatusMeta(q.status).label}</span></span></div>`;
+        return `<div class="row between" style="padding:6px 0;border-bottom:1px solid var(--rule);cursor:pointer" data-open-quote="${q.id}"><span>${q.quoteNumber} — ${util.customerName(c) || 'Customer not assigned'}</span><span class="row" style="gap:6px"><span class="tnum">${util.fmtMoney(q.total)}</span><span class="badge ${util.quoteStatusMeta(q.status).badgeClass}">${util.quoteStatusMeta(q.status).label}</span></span></div>`;
       }).join('')
     : '<div class="empty-sub">No quotes waiting on approval.</div>';
+
+  document.querySelectorAll('[data-open-quote]').forEach((row) => row.addEventListener('click', () => openQuoteDrawer(row.dataset.openQuote)));
 }
 
 const TL_ICON = {
@@ -204,7 +221,7 @@ function iconKey(type) {
 function renderActivity(events) {
   document.getElementById('my-activity').innerHTML = events.length
     ? events.map((e) => `
-      <div class="row between" style="padding:var(--s2) 0;border-bottom:1px solid var(--rule)">
+      <div class="row between" style="padding:var(--s2) 0;border-bottom:1px solid var(--rule);cursor:pointer" data-open-customer="${e.customer.id}">
         <span class="row" style="gap:var(--s2)">
           <span class="insight-bubble" style="background:var(--canvas);color:var(--ink-3);width:26px;height:26px">${TL_ICON[iconKey(e.type)] || ''}</span>
           <span>${e.label} <span class="muted">· ${util.customerName(e.customer)}</span></span>
@@ -212,6 +229,10 @@ function renderActivity(events) {
         <span class="muted" style="font-size:var(--t-13)">${util.fmtDate(e.at)}</span>
       </div>`).join('')
     : '<div class="empty-sub">No activity yet.</div>';
+
+  document.querySelectorAll('[data-open-customer]').forEach((row) => row.addEventListener('click', () => {
+    import('./customers.js').then((m) => m.openCustomerDrawer(row.dataset.openCustomer));
+  }));
 }
 
 function iconUsers() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>'; }
