@@ -16,6 +16,8 @@ const QUEUE = [
 ];
 
 let activeFilter = null;
+let searchText = '';
+let sortBy = 'newest';
 
 export function renderQuotesDashboard(mount) {
   const m = util.quoteMetrics();
@@ -26,6 +28,25 @@ export function renderQuotesDashboard(mount) {
       <div class="card-body">
         <div class="quote-queue-grid" id="queue-pills"></div>
       </div>
+    </div>
+
+    <div class="card" style="margin-bottom:var(--s4)">
+      <div class="card-head" style="flex-wrap:wrap;gap:var(--s2)">
+        <div class="card-title" id="quote-list-title">All Quotes</div>
+        <div class="row" style="gap:var(--s2);flex-wrap:wrap">
+          <input type="search" class="input" id="ql-search" placeholder="Search quote, customer, service…" style="width:220px;font-size:var(--t-13)">
+          <select class="select" id="ql-sort" style="width:auto;font-size:var(--t-13)">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="value-desc">Highest value</option>
+            <option value="value-asc">Lowest value</option>
+            <option value="customer">Customer A–Z</option>
+            <option value="status">Status</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" id="ql-clear" style="display:none">✕ Clear filter</button>
+        </div>
+      </div>
+      <div class="card-body" id="quote-list"></div>
     </div>
 
     <div class="grid-3" style="margin-bottom:var(--s4)">
@@ -63,7 +84,7 @@ export function renderQuotesDashboard(mount) {
       </div>
     </div>
 
-    <div class="crm-grid" style="margin-bottom:var(--s4)">
+    <div class="crm-grid">
       <div class="card">
         <div class="card-head"><div class="card-title">Quote Follow-Ups Due</div><span class="badge badge-gray">actions are placeholders</span></div>
         <div class="card-body" id="quote-followups"></div>
@@ -80,14 +101,14 @@ export function renderQuotesDashboard(mount) {
         </div>
       </div>
     </div>
-
-    <div class="card">
-      <div class="card-head"><div class="card-title" id="quote-list-title">All Quotes</div></div>
-      <div class="card-body" id="quote-list"></div>
-    </div>
   `;
 
   document.getElementById('new-quote-btn').addEventListener('click', () => { location.hash = 'builder'; });
+  document.getElementById('ql-search').value = searchText;
+  document.getElementById('ql-sort').value = sortBy;
+  document.getElementById('ql-search').addEventListener('input', (e) => { searchText = e.target.value; renderList(); });
+  document.getElementById('ql-sort').addEventListener('change', (e) => { sortBy = e.target.value; renderList(); });
+  document.getElementById('ql-clear').addEventListener('click', () => { activeFilter = null; searchText = ''; sortBy = 'newest'; renderQueuePills(); renderList(); });
   renderQueuePills();
   renderFollowUps();
   renderList();
@@ -108,31 +129,92 @@ function renderQueuePills() {
   });
 }
 
+function nextAction(q) {
+  if (q.status === 'draft') return 'Ready to send?';
+  if (q.status === 'sent' || q.status === 'viewed') return 'Awaiting customer approval';
+  if (q.status === 'approved' || q.status === 'partially_approved') return 'Convert to repair order';
+  if (q.status === 'declined') return 'Win-back opportunity';
+  if (q.status === 'expired') return 'Resend or archive';
+  if (q.status === 'converted') return 'Converted to RO';
+  return '';
+}
+
 function renderList() {
   const def = QUEUE.find((s) => s.status === activeFilter);
-  document.getElementById('quote-list-title').textContent = def ? `${def.label} Quotes` : 'All Quotes';
-  let quotes = db.quotes().slice().sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+  let quotes = db.quotes().slice();
+
   if (def) quotes = quotes.filter((q) => q.status === def.status || def.also?.includes(q.status));
+
+  const needle = searchText.trim().toLowerCase();
+  if (needle) {
+    quotes = quotes.filter((q) => {
+      const c = db.customerById(q.customerId);
+      const name = util.customerName(c).toLowerCase();
+      const services = (q.lineItems || []).map((li) => (li.description || '').toLowerCase()).join(' ');
+      return (q.quoteNumber || '').toLowerCase().includes(needle)
+        || (q.title || '').toLowerCase().includes(needle)
+        || name.includes(needle)
+        || services.includes(needle);
+    });
+  }
+
+  const sorters = {
+    newest: (a, b) => new Date(b.updatedAt) - new Date(a.updatedAt),
+    oldest: (a, b) => new Date(a.updatedAt) - new Date(b.updatedAt),
+    'value-desc': (a, b) => (b.total || 0) - (a.total || 0),
+    'value-asc': (a, b) => (a.total || 0) - (b.total || 0),
+    customer: (a, b) => util.customerName(db.customerById(a.customerId)).localeCompare(util.customerName(db.customerById(b.customerId))),
+    status: (a, b) => (a.status || '').localeCompare(b.status || ''),
+  };
+  quotes.sort(sorters[sortBy] || sorters.newest);
+
+  const label = def ? `${def.label} Quotes` : 'All Quotes';
+  const countLabel = def
+    ? `${quotes.length} ${def.label.toLowerCase()} quote${quotes.length === 1 ? '' : 's'}`
+    : `${quotes.length} quote${quotes.length === 1 ? '' : 's'}`;
+  document.getElementById('quote-list-title').innerHTML = `${label} <span class="badge badge-gray" style="font-weight:400;font-size:var(--t-13)">${countLabel}</span>`;
+
+  const clearBtn = document.getElementById('ql-clear');
+  if (clearBtn) clearBtn.style.display = (activeFilter || searchText) ? '' : 'none';
+  document.getElementById('ql-search').value = searchText;
+  document.getElementById('ql-sort').value = sortBy;
 
   document.getElementById('quote-list').innerHTML = quotes.length
     ? quotes.map((q) => {
         const c = db.customerById(q.customerId);
+        const v = db.vehicleById(q.vehicleId);
         const meta = util.quoteStatusMeta(q.status);
+        const vehicleLabel = v ? `${v.year || ''} ${v.make || ''} ${v.model || ''}`.trim() : '';
+        const action = nextAction(q);
         return `
-        <div class="quote-row" data-quote-id="${q.id}">
+        <div class="quote-row" data-quote-id="${q.id}" style="display:grid;grid-template-columns:1fr auto;gap:var(--s3);align-items:center">
           <div>
-            <div class="strong" style="color:var(--ink)">${q.quoteNumber} — ${q.title}</div>
-            <div class="muted" style="font-size:var(--t-13)">${util.customerName(c)} · ${util.timeAgo(q.updatedAt)}</div>
+            <div class="row" style="gap:var(--s2);align-items:baseline;flex-wrap:wrap">
+              <span class="strong" style="color:var(--ink)">${q.quoteNumber}</span>
+              <span style="color:var(--ink)">${q.title || ''}</span>
+              <span class="badge ${meta.badgeClass}">${meta.label}</span>
+            </div>
+            <div class="muted" style="font-size:var(--t-13);margin-top:2px">
+              ${util.customerName(c)}${vehicleLabel ? ` · ${vehicleLabel}` : ''} · ${util.timeAgo(q.updatedAt)}
+            </div>
+            ${action ? `<div style="font-size:var(--t-13);color:var(--ink-3);margin-top:2px">→ ${action}</div>` : ''}
           </div>
-          <div class="row" style="gap:var(--s3)">
+          <div class="row" style="gap:var(--s3);align-items:center">
             <span class="tnum strong" style="color:var(--ink)">${util.fmtMoney(q.total)}</span>
-            <span class="badge ${meta.badgeClass}">${meta.label}</span>
+            <button class="btn btn-secondary btn-sm" data-open-quote="${q.id}">Open</button>
           </div>
         </div>`;
       }).join('')
     : '<div class="empty"><div class="empty-title">No quotes here</div><div class="empty-sub">Try a different filter, or create one in the Builder.</div></div>';
 
-  document.querySelectorAll('[data-quote-id]').forEach((row) => row.addEventListener('click', () => openQuoteDetail(row.dataset.quoteId)));
+  document.querySelectorAll('[data-quote-id]').forEach((row) => row.addEventListener('click', (e) => {
+    if (e.target.closest('[data-open-quote]')) return;
+    openQuoteDetail(row.dataset.quoteId);
+  }));
+  document.querySelectorAll('[data-open-quote]').forEach((btn) => btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openQuoteDetail(btn.dataset.openQuote);
+  }));
 }
 
 // Real candidates (quotes the customer hasn't decided on yet, plus declined
