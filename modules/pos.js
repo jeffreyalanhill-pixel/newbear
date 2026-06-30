@@ -159,7 +159,7 @@ function renderTicket() {
         <div class="muted" style="font-size:var(--t-xs)">${(posCr.pointsBalance || 0).toLocaleString()} pts on file (${util.fmtMoney(pointsValue(posCr.pointsBalance || 0))}) · Est. earn today: +${posEarnPts} pts</div>
       </div>
       <button class="btn btn-secondary btn-sm" onclick="alert('Redeem is a placeholder — point redemption is coming in a future update.')">Redeem <span class="badge badge-gray" style="font-size:9px">placeholder</span></button>
-    </div>` : ''}
+    </div>` : `<div class="muted" style="font-size:var(--t-xs);margin-bottom:var(--s3)">Rewards appear here when the ticket is linked to a rewards member.</div>`}
     <div class="pos-line-row head"><span>Item</span><span>Qty</span><span>Unit</span><span>Total</span><span></span></div>
     ${ticket.lineItems.map(lineRow).join('') || '<div class="empty-sub" style="padding:var(--s2) 0">No lines yet.</div>'}
     ${ticket.type === 'counter_sale' ? `
