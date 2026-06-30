@@ -274,10 +274,119 @@ ul,ol{list-style:none} img,svg{display:block;max-width:100%}
 .share-menu-divider{height:1px;background:var(--rule);margin:4px 2px}
 .locked .lock-icon{width:48px;height:48px;border-radius:50%;background:var(--accent-lt);color:var(--accent);display:grid;place-items:center}
 
+/* 14b. TORK DRAWER — shared standard for all detail drawers/panels ----------
+   Classes:  tork-dh (header) · tork-db (body) · tork-ds (section)
+             tork-dg (detail grid) · tork-dr / tork-dl / tork-dv (row/label/val)
+             tork-summary (summary card) · tork-totals / tork-tot-row (totals)
+             tork-note / tork-note-hd / tork-note-kicker (note blocks)
+             tork-ab-primary / tork-ab-secondary (action bar rows)
+             tork-link (clickable record link)
+   Every drawer may use these classes instead of defining its own.
+   Scoped per-drawer overrides are still allowed for layout adjustments.     */
+
+/* Header */
+.tork-dh{padding:var(--s5) var(--s6) var(--s4);border-bottom:1px solid var(--rule);background:var(--card);display:flex;align-items:flex-start;justify-content:space-between;gap:var(--s3)}
+.tork-dh-meta{flex:1;min-width:0}
+.tork-dh-eyebrow{font-size:var(--t-xs);font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px}
+.tork-dh-title{font-size:var(--t-md);font-weight:700;color:var(--ink);line-height:1.3;margin-bottom:6px;word-break:break-word}
+.tork-dh-sub{font-size:var(--t-13);color:var(--ink-3);margin-bottom:6px;word-break:break-word}
+.tork-dh-badges{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+
+/* Body */
+.tork-db{padding:var(--s5) var(--s6);display:flex;flex-direction:column;gap:0}
+
+/* Summary card */
+.tork-summary{display:grid;grid-template-columns:1fr auto;gap:var(--s4);align-items:start;
+  background:var(--canvas);border:1px solid var(--rule);border-radius:var(--r-md);
+  padding:var(--s4) var(--s5);margin-bottom:var(--s5)}
+.tork-summary-main{}
+.tork-summary-label{font-size:var(--t-xs);color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin-bottom:2px}
+.tork-summary-amount{font-size:var(--t-2xl);font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1}
+.tork-summary-aside{text-align:right;font-size:var(--t-sm);color:var(--ink-3);line-height:2;white-space:nowrap}
+
+/* Sections */
+.tork-ds{margin-top:var(--s5);padding-top:var(--s5);border-top:1px solid var(--rule)}
+.tork-ds:first-of-type{margin-top:0;padding-top:0;border-top:none}
+.tork-ds-title{font-size:var(--t-xs);font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin-bottom:var(--s3)}
+
+/* Detail grid (label / value pairs) */
+.tork-dg{display:flex;flex-direction:column;gap:0}
+.tork-dr{display:grid;grid-template-columns:120px 1fr;gap:var(--s3);padding:7px 0;border-bottom:1px solid var(--rule);align-items:baseline}
+.tork-dr:last-child{border-bottom:none}
+.tork-dl{font-size:var(--t-sm);color:var(--ink-3);font-weight:500;padding-top:1px}
+.tork-dv{font-size:var(--t-13);color:var(--ink);font-weight:500;word-break:break-word;overflow-wrap:anywhere}
+
+/* Inline link value */
+.tork-link{color:var(--accent);font-weight:600;cursor:pointer;background:none;border:none;padding:0;
+  text-align:left;font-size:inherit;font-family:inherit;word-break:break-word}
+.tork-link:hover{text-decoration:underline}
+
+/* Line items table (shared across quote/invoice drawers) */
+.tork-li-table{width:100%;border-collapse:collapse;font-size:var(--t-13)}
+.tork-li-table th{font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.05em;color:var(--ink-3);
+  font-weight:600;padding:6px 8px;border-bottom:2px solid var(--rule);text-align:left}
+.tork-li-table th.r,.tork-li-table td.r{text-align:right}
+.tork-li-table th.c,.tork-li-table td.c{text-align:center}
+.tork-li-table td{padding:9px 8px;border-bottom:1px solid var(--rule);vertical-align:top}
+.tork-li-table tr:last-child td{border-bottom:none}
+.tork-li-name{font-weight:600;color:var(--ink);line-height:1.3}
+.tork-li-meta{display:flex;gap:5px;align-items:center;margin-top:3px}
+.tork-li-type{font-size:10px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em}
+
+/* Totals box */
+.tork-totals{background:var(--canvas);border:1px solid var(--rule);border-radius:var(--r-md);
+  padding:var(--s3) var(--s4);margin-top:var(--s3);display:flex;flex-direction:column;gap:4px;align-items:flex-end}
+.tork-tot-row{display:flex;gap:var(--s6);font-size:var(--t-13);min-width:200px;justify-content:space-between}
+.tork-tot-row .tl{color:var(--ink-3)}
+.tork-tot-row .tv{font-variant-numeric:tabular-nums;font-weight:500}
+.tork-tot-row.grand{border-top:1px solid var(--rule);padding-top:6px;margin-top:2px}
+.tork-tot-row.grand .tl{font-weight:700;color:var(--ink)}
+.tork-tot-row.grand .tv{font-size:var(--t-md);font-weight:800;color:var(--ink)}
+
+/* Payment rows (invoice drawers) */
+.tork-pay-row{display:flex;justify-content:space-between;align-items:center;padding:var(--s2) 0;border-bottom:1px solid var(--rule);font-size:var(--t-13)}
+.tork-pay-row:last-child{border-bottom:none}
+
+/* Note blocks */
+.tork-note{background:var(--canvas);border:1px solid var(--rule);border-radius:var(--r-md);padding:var(--s3) var(--s4);margin-bottom:var(--s3)}
+.tork-note:last-child{margin-bottom:0}
+.tork-note-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.tork-note-kicker{font-size:var(--t-xs);color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.tork-note-hint{font-size:10px;color:var(--ink-4);font-style:italic}
+.tork-note-text{font-size:var(--t-13);color:var(--ink-2);line-height:1.6;white-space:pre-wrap;min-height:18px}
+.tork-note-empty{font-size:var(--t-13);color:var(--ink-4);font-style:italic}
+.tork-note-edit-btn{font-size:var(--t-xs);color:var(--accent);background:none;border:none;cursor:pointer;padding:2px 6px;border-radius:4px;font-weight:600}
+.tork-note-edit-btn:hover{background:var(--accent-lt)}
+.tork-note-textarea{width:100%;box-sizing:border-box;border:1px solid var(--accent);border-radius:var(--r-md);
+  padding:var(--s2) var(--s3);font-size:var(--t-13);font-family:inherit;color:var(--ink);
+  background:var(--card);resize:vertical;min-height:80px;line-height:1.5;margin-top:4px}
+.tork-note-textarea:focus{outline:2px solid var(--accent);outline-offset:1px}
+.tork-note-actions{display:flex;gap:var(--s2);margin-top:var(--s2)}
+.tork-note-save{font-size:var(--t-sm);font-weight:600;color:#fff;background:var(--accent);border:none;border-radius:var(--r-chip);padding:5px 14px;cursor:pointer}
+.tork-note-save:hover{background:var(--accent-ink)}
+.tork-note-cancel{font-size:var(--t-sm);color:var(--ink-3);background:none;border:1px solid var(--rule);border-radius:var(--r-chip);padding:5px 14px;cursor:pointer}
+.tork-note-cancel:hover{background:var(--canvas)}
+
+/* Action bar */
+.tork-ab-primary{display:flex;flex-wrap:wrap;gap:var(--s2);margin-bottom:var(--s3)}
+.tork-ab-secondary{display:flex;flex-wrap:wrap;gap:var(--s2);padding-top:var(--s3);border-top:1px solid var(--rule)}
+
+/* Stock pills (shared across quote / inventory drawers) */
+.tork-stock-pill{font-size:10px;padding:2px 6px;border-radius:var(--r-full);font-weight:700;text-transform:uppercase}
+.tork-stock-pill.in{background:var(--green-lt);color:var(--green)}
+.tork-stock-pill.low{background:var(--amber-lt);color:var(--amber)}
+.tork-stock-pill.out{background:var(--red-lt);color:var(--red)}
+
+/* 14c. CRM LINK BUTTON — shared customer-name link used across InvoiceOps --- */
+.cust-name-link{background:none;border:none;padding:0;color:var(--accent);font-weight:600;cursor:pointer;font-size:inherit;font-family:inherit;text-align:left}
+.cust-name-link:hover{text-decoration:underline}
+
 /* 14. UTILITY -------------------------------------------------------------- */
 .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:var(--s4)}
 .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s4)}
+.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--s4)}
 .muted{color:var(--ink-3)} .stack{display:flex;flex-direction:column;gap:var(--s4)}
 .row{display:flex;align-items:center;gap:var(--s3)} .between{justify-content:space-between} .wrapf{flex-wrap:wrap}
 .section-label{font-size:var(--t-sm);font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
-@media(max-width:760px){.grid-2,.grid-3,.kanban{grid-template-columns:1fr}}
+@media(max-width:760px){.grid-2,.grid-3,.grid-4,.kanban{grid-template-columns:1fr}}
+@media(max-width:1100px) and (min-width:761px){.grid-4{grid-template-columns:repeat(2,1fr)}}
