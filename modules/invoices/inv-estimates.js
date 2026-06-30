@@ -1,6 +1,8 @@
 // AutoBook — modules/invoices/inv-estimates.js
-// Estimates tab — finance-side view of db.quotes(). Read-only summary list
-// with a rich detail drawer. Full quote building/editing stays in quotes.html.
+// Finance-side VIEW of the quote/estimate system. Source of truth is db.quotes()
+// (written by modules/quotes/). This module renders a read-only summary list and
+// detail drawer for the Invoices → Estimates tab; it does not maintain a separate
+// estimate data model. All quote creation and editing flows through quotes.html.
 import { db } from '../../lib/data.js';
 import { util } from '../../lib/util.js';
 import { openInvDrawer, closeInvDrawer } from './invoices-app.js';

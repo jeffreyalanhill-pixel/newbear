@@ -1,4 +1,8 @@
 // AutoBook — modules/quotes/quotes-app.js
+// Canonical quote/estimate editing workflow. db.quotes() is the single source
+// of truth for all quote records. The Invoices → Estimates tab
+// (modules/invoices/inv-estimates.js) is a read-only finance-side view of the
+// same data — it does not maintain a parallel estimate model.
 // Quotes sub-app shell: shared icon-rail + a navy command-center banner +
 // hash-routed secondary views (Dashboard, Builder, Templates). Same pattern
 // as crm-app.js/mkt-app.js — purpose-built layout, same design language.
