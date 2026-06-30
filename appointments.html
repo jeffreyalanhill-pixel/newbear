@@ -29,6 +29,16 @@
   .sched2-month-cell.other-month{background:#FAFBFC;color:var(--ink-4)}
   .sched2-month-cell.today{border:2px solid var(--accent)}
   .sched2-pending-card{border:1px solid var(--rule);border-radius:var(--r-md);padding:var(--s3);margin-bottom:var(--s2)}
+  /* Workflow board */
+  .wfb-board{display:flex;gap:var(--s3);overflow-x:auto;padding-bottom:var(--s2)}
+  .wfb-col{flex:0 0 240px;background:var(--canvas);border-radius:var(--r-md);padding:var(--s3);min-height:140px;border-top:3px solid var(--rule)}
+  .wfb-col-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--s3);padding-bottom:var(--s2);border-bottom:1px solid var(--rule)}
+  .wfb-col-title{font-size:var(--t-13);font-weight:700;color:var(--ink)}
+  .wfb-col.dragover{outline:2px dashed var(--accent);outline-offset:2px}
+  .wfb-card{background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:var(--r-md);padding:var(--s3);margin-bottom:var(--s2);cursor:pointer;font-size:var(--t-13);box-shadow:var(--shadow-card);transition:box-shadow .15s,transform .15s}
+  .wfb-card:hover{box-shadow:var(--shadow-pop);transform:translateY(-1px)}
+  .wfb-card.dragging{opacity:.5}
+  .wfb-card .wfb-warn{font-size:var(--t-xs);color:var(--red);margin-top:4px}
 </style>
 </head>
 <body>
@@ -84,8 +94,14 @@
                   <button id="view-month">Month</button>
                 </div>
               </div>
+              <div class="sched2-toolbar" id="day-mode-row">
+                <div class="sched2-viewbtns">
+                  <button id="daymode-workflow">Workflow View</button>
+                  <button id="daymode-calendar">Calendar View</button>
+                </div>
+              </div>
 
-              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:var(--s2);margin-bottom:var(--s4)">
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:var(--s2);margin-bottom:var(--s4)">
                 <select class="select" id="filter-status">
                   <option value="">All Status</option>
                   <option value="scheduled">Scheduled</option>
@@ -94,6 +110,13 @@
                   <option value="on_hold">On Hold</option>
                   <option value="ready">Ready</option>
                   <option value="cancelled">Cancelled</option>
+                </select>
+                <select class="select" id="filter-tech"><option value="">All Technicians</option></select>
+                <select class="select" id="filter-bay"><option value="">All Bays</option></select>
+                <select class="select" id="filter-type">
+                  <option value="">All Types</option>
+                  <option value="wait">Wait at shop</option>
+                  <option value="drop_off">Drop-off</option>
                 </select>
                 <input type="search" class="input" id="filter-search" placeholder="Search customer, RO, vehicle…">
               </div>
