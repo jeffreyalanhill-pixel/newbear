@@ -5,8 +5,10 @@
 // util.recordPayment uses — it never deletes or rewrites the original invoice.
 import { db } from '../../lib/data.js';
 import { util } from '../../lib/util.js';
-import { toast, confirmDialog } from '../../lib/nav.js';
+import { toast, confirmDialog, goToCustomer } from '../../lib/nav.js';
 import { openInvDrawer, closeInvDrawer, refreshInvoicesApp } from './invoices-app.js';
+import { downloadCSV, copyToClipboard, printHTML } from '../../lib/export.js';
+import { renderControlBar, wireControls, wireSortHeaders, sortRows, updateCount } from './inv-controls.js';
 
 const STATUS_BADGE = { draft: 'badge-gray', issued: 'badge-blue', applied: 'badge-green', void: 'badge-red' };
 const REASONS = [
@@ -17,37 +19,121 @@ const REASONS = [
   { value: 'adjustment', label: 'Adjustment' },
 ];
 
+const sortState = { key: 'createdAt', dir: 'desc' };
+let getValues = () => ({ search: '', filters: {} });
+
 export function renderInvCreditNotes(mount) {
   mount.innerHTML = `
     <div class="card">
       <div class="card-head"><div class="card-title">Credit Notes / Refunds</div><button class="btn btn-primary btn-sm" id="add-cn-btn">+ Add Credit Note</button></div>
-      <div class="card-body" id="cn-list"></div>
-    </div>
-  `;
+      <div class="card-body">
+        ${renderControlBar({
+          searchPlaceholder: 'Search customer, invoice, reason…',
+          filters: [
+            { key: 'status', all: 'All statuses', options: [
+              { value: 'draft', label: 'Draft' }, { value: 'issued', label: 'Issued' },
+              { value: 'applied', label: 'Applied' }, { value: 'void', label: 'Void' },
+            ]},
+          ],
+          actions: [
+            { key: 'csv', label: 'Export CSV' }, { key: 'print', label: 'Print' }, { key: 'copy', label: 'Copy' },
+          ],
+        })}
+        <div id="cn-list"></div>
+      </div>
+    </div>`;
   document.getElementById('add-cn-btn').addEventListener('click', openCreateCreditNote);
+  getValues = wireControls(mount, renderList);
+  wireSortHeaders(mount.querySelector('thead') || document.createElement('thead'), sortState, renderList);
+  mount.querySelector('[data-tbl-action="csv"]')?.addEventListener('click', exportCSV);
+  mount.querySelector('[data-tbl-action="print"]')?.addEventListener('click', exportPrint);
+  mount.querySelector('[data-tbl-action="copy"]')?.addEventListener('click', exportCopy);
   renderList();
 }
 
+function allRows() {
+  return db.creditNotes().map(cn => ({
+    ...cn,
+    customerName: util.customerName(db.customerById(cn.customerId)),
+    invoiceNumber: cn.invoiceId ? db.invoiceById(cn.invoiceId)?.number || cn.invoiceId : '—',
+    reasonLabel: REASONS.find(r => r.value === cn.reason)?.label || cn.reason,
+  }));
+}
+
+function filteredRows() {
+  const { search, filters } = getValues();
+  let rows = allRows();
+  if (filters.status) rows = rows.filter(cn => cn.status === filters.status);
+  if (search) rows = rows.filter(cn =>
+    `${cn.customerName} ${cn.invoiceNumber} ${cn.reasonLabel} ${cn.notes || ''}`.toLowerCase().includes(search));
+  const typeMap = { createdAt: 'date', amount: 'money', customerName: 'text', status: 'text', reasonLabel: 'text' };
+  return sortRows(rows, sortState.key, sortState.dir, typeMap[sortState.key] || 'text');
+}
+
 function renderList() {
-  const notes = db.creditNotes().slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  document.getElementById('cn-list').innerHTML = notes.length
+  const rows = filteredRows();
+  const all  = allRows();
+  const listEl = document.getElementById('cn-list');
+  if (!listEl) return;
+  listEl.innerHTML = rows.length
     ? `<table class="table">
-        <thead><tr><th>Customer</th><th>Invoice</th><th class="num">Amount</th><th>Reason</th><th>Status</th><th>Created</th><th></th></tr></thead>
+        <thead>
+          <tr>
+            <th data-sort="customerName">Customer</th>
+            <th>Invoice</th>
+            <th class="num" data-sort="amount">Amount</th>
+            <th data-sort="reasonLabel">Reason</th>
+            <th data-sort="status">Status</th>
+            <th data-sort="createdAt">Created</th>
+            <th></th>
+          </tr>
+        </thead>
         <tbody>
-          ${notes.map((cn) => `
+          ${rows.map(cn => `
             <tr>
-              <td>${util.customerName(db.customerById(cn.customerId))}</td>
-              <td>${cn.invoiceId ? db.invoiceById(cn.invoiceId)?.number || cn.invoiceId : '—'}</td>
+              <td>${cn.customerId
+                ? `<button class="cust-name-link" data-open-customer="${cn.customerId}">${cn.customerName}</button>`
+                : (cn.customerName || '—')}</td>
+              <td>${cn.invoiceNumber}</td>
               <td class="num tnum">${util.fmtMoney(cn.amount)}</td>
-              <td>${REASONS.find((r) => r.value === cn.reason)?.label || cn.reason}</td>
+              <td>${cn.reasonLabel}</td>
               <td><span class="badge ${STATUS_BADGE[cn.status] || 'badge-gray'}">${cn.status}</span></td>
               <td>${util.fmtDate(cn.createdAt)}</td>
               <td><button class="btn btn-secondary btn-sm" data-open-cn="${cn.id}">Open</button></td>
             </tr>`).join('')}
         </tbody>
       </table>`
-    : '<div class="empty-sub">No credit notes yet.</div>';
-  document.querySelectorAll('[data-open-cn]').forEach((btn) => btn.addEventListener('click', () => openCreditNoteDrawer(btn.dataset.openCn)));
+    : '<div class="empty-sub" style="padding:var(--s4)">No credit notes match.</div>';
+  document.querySelectorAll('[data-open-cn]').forEach(btn => btn.addEventListener('click', () => openCreditNoteDrawer(btn.dataset.openCn)));
+  document.querySelectorAll('[data-open-customer]').forEach(btn => btn.addEventListener('click', () => goToCustomer(btn.dataset.openCustomer)));
+  wireSortHeaders(listEl.querySelector('thead') || document.createElement('thead'), sortState, renderList);
+  const ctrl = document.querySelector('.tbl-ctrl');
+  if (ctrl) updateCount(ctrl.parentElement, rows.length, all.length);
+}
+
+function exportCSV() {
+  downloadCSV('credit-notes.csv', filteredRows().map(cn => ({
+    customer: cn.customerName, invoice: cn.invoiceNumber, amount: cn.amount,
+    reason: cn.reasonLabel, status: cn.status, created: util.fmtDate(cn.createdAt),
+  })), [
+    { key: 'customer', label: 'Customer' }, { key: 'invoice', label: 'Invoice' },
+    { key: 'amount', label: 'Amount' }, { key: 'reason', label: 'Reason' },
+    { key: 'status', label: 'Status' }, { key: 'created', label: 'Created' },
+  ]);
+}
+function exportPrint() {
+  const rows = filteredRows();
+  printHTML('Credit Notes', `
+    <table>
+      <thead><tr><th>Customer</th><th>Invoice</th><th class="num">Amount</th><th>Reason</th><th>Status</th><th>Created</th></tr></thead>
+      <tbody>${rows.map(cn => `<tr><td>${cn.customerName}</td><td>${cn.invoiceNumber}</td><td class="num">$${cn.amount.toFixed(2)}</td><td>${cn.reasonLabel}</td><td>${cn.status}</td><td>${util.fmtDate(cn.createdAt)}</td></tr>`).join('')}</tbody>
+    </table>
+  `);
+}
+function exportCopy() {
+  copyToClipboard(filteredRows().map(cn =>
+    `${cn.customerName}  ${cn.invoiceNumber}  $${cn.amount.toFixed(2)}  ${cn.reasonLabel}  ${cn.status}`
+  ).join('\n'));
 }
 
 function openCreditNoteDrawer(cnId) {

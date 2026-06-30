@@ -6,6 +6,8 @@ import { db } from '../../lib/data.js';
 import { util } from '../../lib/util.js';
 import { toast } from '../../lib/nav.js';
 import { openInvDrawer, closeInvDrawer } from './invoices-app.js';
+import { downloadCSV, copyToClipboard, printHTML } from '../../lib/export.js';
+import { renderControlBar, wireControls, wireSortHeaders, sortRows, updateCount } from './inv-controls.js';
 
 const TYPES = [
   { value: 'labor', label: 'Labor Service' }, { value: 'part', label: 'Part' }, { value: 'tire', label: 'Tire' },
@@ -13,37 +15,114 @@ const TYPES = [
   { value: 'shop_supply', label: 'Shop Supply' }, { value: 'misc_charge', label: 'Misc Charge' },
 ];
 
+const sortState = { key: 'name', dir: 'asc' };
+let getValues = () => ({ search: '', filters: {} });
+
 export function renderInvItems(mount) {
   mount.innerHTML = `
     <div class="card">
       <div class="card-head"><div class="card-title">Items / Services</div><button class="btn btn-primary btn-sm" id="add-item-btn">+ Add Item / Service</button></div>
-      <div class="card-body" id="item-list"></div>
-    </div>
-  `;
+      <div class="card-body">
+        ${renderControlBar({
+          searchPlaceholder: 'Search name, SKU, category…',
+          filters: [
+            { key: 'type', all: 'All types', options: TYPES.map(t => ({ value: t.value, label: t.label })) },
+            { key: 'active', all: 'Active + inactive', options: [
+              { value: 'active', label: 'Active only' }, { value: 'inactive', label: 'Inactive only' },
+            ]},
+          ],
+          actions: [
+            { key: 'csv', label: 'Export CSV' }, { key: 'print', label: 'Print' }, { key: 'copy', label: 'Copy' },
+          ],
+        })}
+        <div id="item-list"></div>
+      </div>
+    </div>`;
   document.getElementById('add-item-btn').addEventListener('click', () => openItemForm());
+  getValues = wireControls(mount, renderList);
+  mount.querySelector('[data-tbl-action="csv"]')?.addEventListener('click', exportCSV);
+  mount.querySelector('[data-tbl-action="print"]')?.addEventListener('click', exportPrint);
+  mount.querySelector('[data-tbl-action="copy"]')?.addEventListener('click', exportCopy);
   renderList();
 }
 
+function allRows() {
+  return db.invoiceItems().map(i => ({
+    ...i,
+    typeLabel: TYPES.find(t => t.value === i.type)?.label || i.type,
+  }));
+}
+
+function filteredRows() {
+  const { search, filters } = getValues();
+  let rows = allRows();
+  if (filters.type)   rows = rows.filter(i => i.type === filters.type);
+  if (filters.active === 'active')   rows = rows.filter(i => i.active);
+  if (filters.active === 'inactive') rows = rows.filter(i => !i.active);
+  if (search) rows = rows.filter(i =>
+    `${i.name} ${i.sku || ''} ${i.typeLabel}`.toLowerCase().includes(search));
+  const typeMap = { name: 'text', typeLabel: 'text', defaultPrice: 'money', sku: 'text' };
+  return sortRows(rows, sortState.key, sortState.dir, typeMap[sortState.key] || 'text');
+}
+
 function renderList() {
-  const items = db.invoiceItems().slice().sort((a, b) => a.name.localeCompare(b.name));
-  document.getElementById('item-list').innerHTML = `
+  const rows = filteredRows();
+  const all  = allRows();
+  const listEl = document.getElementById('item-list');
+  if (!listEl) return;
+  listEl.innerHTML = `
     <table class="table">
-      <thead><tr><th>Name</th><th>Type</th><th>SKU</th><th class="num">Price</th><th>Taxable</th><th>Status</th><th></th></tr></thead>
+      <thead>
+        <tr>
+          <th data-sort="name" data-sort-type="text">Name</th>
+          <th data-sort="typeLabel" data-sort-type="text">Type</th>
+          <th data-sort="sku" data-sort-type="text">SKU</th>
+          <th class="num" data-sort="defaultPrice" data-sort-type="money">Price</th>
+          <th>Taxable</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
       <tbody>
-        ${items.length ? items.map((i) => `
+        ${rows.length ? rows.map(i => `
           <tr style="${i.active ? '' : 'opacity:.5'}">
             <td class="strong">${i.name}</td>
-            <td>${TYPES.find((t) => t.value === i.type)?.label || i.type}</td>
+            <td>${i.typeLabel}</td>
             <td class="muted">${i.sku || '—'}</td>
             <td class="num tnum">${util.fmtMoney(i.defaultPrice)}</td>
             <td>${i.taxable ? 'Yes' : 'No'}</td>
             <td><span class="badge ${i.active ? 'badge-green' : 'badge-gray'}">${i.active ? 'active' : 'inactive'}</span></td>
             <td><button class="btn btn-secondary btn-sm" data-edit-item="${i.id}">Edit</button></td>
-          </tr>`).join('') : '<tr><td colspan="7"><div class="empty-sub">No items yet.</div></td></tr>'}
+          </tr>`).join('') : '<tr><td colspan="7"><div class="empty-sub">No items match.</div></td></tr>'}
       </tbody>
+    </table>`;
+  listEl.querySelectorAll('[data-edit-item]').forEach(btn => btn.addEventListener('click', () => openItemForm(btn.dataset.editItem)));
+  wireSortHeaders(listEl.querySelector('thead'), sortState, renderList);
+  const ctrl = document.querySelector('.tbl-ctrl');
+  if (ctrl) updateCount(ctrl.parentElement, rows.length, all.length);
+}
+
+function exportCSV() {
+  downloadCSV('items-services.csv', filteredRows().map(i => ({
+    name: i.name, type: i.typeLabel, sku: i.sku || '', price: i.defaultPrice,
+    taxable: i.taxable ? 'Yes' : 'No', status: i.active ? 'active' : 'inactive',
+  })), [
+    { key: 'name', label: 'Name' }, { key: 'type', label: 'Type' }, { key: 'sku', label: 'SKU' },
+    { key: 'price', label: 'Price' }, { key: 'taxable', label: 'Taxable' }, { key: 'status', label: 'Status' },
+  ]);
+}
+function exportPrint() {
+  printHTML('Items / Services', `
+    <table>
+      <thead><tr><th>Name</th><th>Type</th><th>SKU</th><th class="num">Price</th><th>Taxable</th><th>Status</th></tr></thead>
+      <tbody>${filteredRows().map(i => `<tr><td>${i.name}</td><td>${i.typeLabel}</td><td>${i.sku||'—'}</td><td class="num">$${i.defaultPrice.toFixed(2)}</td><td>${i.taxable?'Yes':'No'}</td><td>${i.active?'active':'inactive'}</td></tr>`).join('')}</tbody>
     </table>
-  `;
-  document.querySelectorAll('[data-edit-item]').forEach((btn) => btn.addEventListener('click', () => openItemForm(btn.dataset.editItem)));
+  `);
+}
+function exportCopy() {
+  copyToClipboard(filteredRows().map(i =>
+    `${i.name}  ${i.typeLabel}  $${i.defaultPrice.toFixed(2)}  ${i.active ? 'active' : 'inactive'}`
+  ).join('\n'));
 }
 
 function openItemForm(itemId) {
