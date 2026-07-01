@@ -6,16 +6,67 @@
 <title>Torklio — Appointments Scheduler</title>
 <link rel="stylesheet" href="style.css">
 <style>
-  /* page-scoped LAYOUT only, classes prefixed sched2- so nothing here can
-     leak into / be affected by the original appointments.html's styles. */
-  .sched2-layout{display:grid;grid-template-columns:1fr 360px;gap:var(--s4);align-items:start}
-  @media(max-width:1100px){.sched2-layout{grid-template-columns:1fr}}
-  .sched2-toolbar{display:flex;flex-wrap:wrap;gap:var(--s3);align-items:center;justify-content:space-between;margin-bottom:var(--s4)}
-  .sched2-toolbar-left{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center}
-  .sched2-viewbtns{display:inline-flex;gap:2px;background:var(--canvas);border:1px solid var(--rule);border-radius:var(--r-md);padding:3px}
-  .sched2-viewbtns button{padding:7px 14px;border-radius:var(--r-chip);font-size:var(--t-13);font-weight:600;color:var(--ink-3)}
-  .sched2-viewbtns button.active{background:var(--accent);color:#fff}
-  .sched2-legend{display:flex;flex-wrap:wrap;gap:var(--s4);margin-top:var(--s4);padding-top:var(--s3);border-top:1px solid var(--rule)}
+  /* ── Layout ─────────────────────────────────────────────────────────────── */
+  .sched2-layout { display:grid; grid-template-columns:1fr 360px; gap:var(--s4); align-items:start; }
+  @media(max-width:1100px) { .sched2-layout { grid-template-columns:1fr; } }
+
+  /* ══ SCHEDULE BOARD — 2-ROW COMMAND AREA ════════════════════════════════════ */
+
+  /* ── Row 1: Nav + view toggles + filters ────────────────────────────────── */
+  .sb-r1 { display:flex; align-items:center; gap:5px; padding:7px 14px; border-bottom:1px solid var(--rule); flex-wrap:wrap; }
+  /* Nav pill: ‹ Today › | date */
+  .sb-nav-group { display:inline-flex; align-items:center; background:#fff; border:1px solid var(--rule); border-radius:6px; padding:2px; flex-shrink:0; }
+  .sb-nav-btn { height:26px; padding:0 9px; border:none; background:transparent; border-radius:4px; font-size:12px; font-weight:600; color:var(--ink-2); cursor:pointer; transition:background .1s,color .1s; white-space:nowrap; }
+  .sb-nav-btn:hover { background:var(--canvas); color:var(--ink); }
+  .sb-nav-divider { width:1px; height:14px; background:var(--rule); flex-shrink:0; margin:0 1px; }
+  .sb-date-input { height:26px; padding:0 6px; border:none; background:transparent; border-radius:4px; font-size:11px; color:var(--ink-3); cursor:pointer; outline:none; }
+  .sb-date-input:focus { background:var(--canvas); }
+  /* View toggle — keep .sched2-viewbtns for JS selector compatibility */
+  .sched2-viewbtns { display:inline-flex; background:#fff; border:1px solid var(--rule); border-radius:6px; padding:2px; flex-shrink:0; }
+  .sched2-viewbtns button { height:26px; padding:0 9px; border:none; background:transparent; border-radius:4px; font-size:12px; font-weight:600; color:var(--ink-3); cursor:pointer; transition:background .12s,color .12s; white-space:nowrap; }
+  .sched2-viewbtns button:hover { color:var(--ink-2); }
+  .sched2-viewbtns button.active { background:var(--accent); color:#fff; }
+  /* Filters inline in row 1 */
+  .sb-filter-sel { height:26px; padding:0 6px; border:1px solid var(--rule); border-radius:6px; font-size:11px; color:var(--ink-2); background:#fff; cursor:pointer; min-width:76px; max-width:140px; flex:1; }
+  .sb-filter-sel:focus { outline:none; border-color:var(--accent); }
+  .sb-filter-search {
+    height:26px; padding:0 8px 0 26px; border:1px solid var(--rule); border-radius:6px;
+    font-size:11px; color:var(--ink); background:#fff;
+    flex:2; min-width:110px; max-width:200px;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239BA8B8' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:8px center; background-size:12px;
+  }
+  .sb-filter-search:focus { outline:none; border-color:var(--accent); }
+  .sb-filter-search::placeholder { color:var(--ink-4); }
+
+  /* ── Row 2: Board tools + Walk-In ───────────────────────────────────────── */
+  .sb-r2 { display:flex; align-items:center; gap:4px; padding:5px 14px; border-bottom:1px solid var(--rule); flex-wrap:wrap; }
+  /* Board tools injected by JS */
+  #sb-r2-tools { display:flex; align-items:center; gap:4px; flex:1; flex-wrap:nowrap; }
+  /* Walk-In (orange CTA, static HTML, at row end) */
+  #walkin-slot { margin-left:auto; flex-shrink:0; }
+  #walkin-slot button { height:26px; padding:0 12px; background:#FF6A2B; color:#fff; border:none; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; transition:opacity .12s; white-space:nowrap; }
+  #walkin-slot button:hover { opacity:.88; }
+  /* Metric tabs */
+  .sb-metric-tabs { display:inline-flex; background:var(--canvas); border:1px solid var(--rule); border-radius:5px; padding:2px; flex-shrink:0; }
+  .sb-metric-btn { height:22px; padding:0 7px; border:none; background:transparent; border-radius:3px; font-size:10px; font-weight:600; color:var(--ink-3); cursor:pointer; transition:background .1s,color .1s; white-space:nowrap; }
+  .sb-metric-btn:hover { color:var(--ink-2); }
+  .sb-metric-btn.active { background:var(--accent); color:#fff; }
+  /* Card view toggle */
+  .sb-card-tabs { display:inline-flex; background:var(--canvas); border:1px solid var(--rule); border-radius:5px; padding:2px; flex-shrink:0; }
+  .sb-card-btn { height:22px; padding:0 7px; border:none; background:transparent; border-radius:3px; font-size:10px; font-weight:600; color:var(--ink-3); cursor:pointer; transition:background .1s,color .1s; }
+  .sb-card-btn.active { background:var(--accent); color:#fff; }
+  /* Collapse / action buttons */
+  .sb-tool-btn { height:22px; padding:0 7px; border:1px solid var(--rule); border-radius:5px; font-size:10px; font-weight:600; color:var(--ink-3); background:var(--canvas); cursor:pointer; white-space:nowrap; transition:background .1s; }
+  .sb-tool-btn:hover { background:var(--rule); color:var(--ink-2); }
+  .sb-tools-sep { width:1px; height:14px; background:var(--rule); flex-shrink:0; margin:0 2px; }
+  /* Timing chips */
+  .sb-timing-chips { display:inline-flex; align-items:center; gap:3px; flex-shrink:0; }
+
+  /* ── Legend ───────────────────────────────────────────────────────────────── */
+  .sched2-legend { display:flex; flex-wrap:wrap; gap:var(--s3); padding-top:var(--s2); }
+  .legend-summary { font-size:var(--t-xs); color:var(--ink-3); cursor:pointer; user-select:none; list-style:none; display:inline-flex; align-items:center; gap:4px; font-weight:600; padding:2px 0; }
+  .legend-summary::-webkit-details-marker { display:none; }
   .sched2-legend-item{display:flex;align-items:center;gap:6px;font-size:var(--t-13);color:var(--ink-3)}
   .sched2-chip{width:10px;height:10px;border-radius:3px;flex-shrink:0}
   .sched2-day-grid{display:grid;gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:var(--r-md);overflow:auto;max-height:640px}
@@ -29,16 +80,249 @@
   .sched2-month-cell.other-month{background:#FAFBFC;color:var(--ink-4)}
   .sched2-month-cell.today{border:2px solid var(--accent)}
   .sched2-pending-card{border:1px solid var(--rule);border-radius:var(--r-md);padding:var(--s3);margin-bottom:var(--s2)}
-  /* Workflow board */
-  .wfb-board{display:flex;gap:var(--s3);overflow-x:auto;padding-bottom:var(--s2)}
-  .wfb-col{flex:0 0 240px;background:var(--canvas);border-radius:var(--r-md);padding:var(--s3);min-height:140px;border-top:3px solid var(--rule)}
-  .wfb-col-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--s3);padding-bottom:var(--s2);border-bottom:1px solid var(--rule)}
-  .wfb-col-title{font-size:var(--t-13);font-weight:700;color:var(--ink)}
-  .wfb-col.dragover{outline:2px dashed var(--accent);outline-offset:2px}
-  .wfb-card{background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:var(--r-md);padding:var(--s3);margin-bottom:var(--s2);cursor:pointer;font-size:var(--t-13);box-shadow:var(--shadow-card);transition:box-shadow .15s,transform .15s}
-  .wfb-card:hover{box-shadow:var(--shadow-pop);transform:translateY(-1px)}
-  .wfb-card.dragging{opacity:.5}
-  .wfb-card .wfb-warn{font-size:var(--t-xs);color:var(--red);margin-top:4px}
+  /* ── Workflow board ─────────────────────────────────────────────────────── */
+  .wfb-board { display:flex; gap:9px; overflow-x:auto; padding-bottom:var(--s4); scroll-behavior:smooth; -webkit-overflow-scrolling:touch; align-items:flex-start; }
+
+  /* Column shell */
+  .wfb-col { flex:0 0 234px; background:#F7F9FC; border-radius:10px; min-height:80px; border:1px solid #DDE3EC; overflow:hidden; display:flex; flex-direction:column; }
+  .wfb-col.dragover { outline:2px dashed var(--accent); outline-offset:2px; }
+
+  /* ── Colored header bar ──────────────────────────────────────────────────── */
+  .wfb-col-header { display:flex; align-items:center; gap:7px; padding:10px 12px 9px; color:#fff; min-height:40px; }
+  .wfb-col-header-title { font-size:12px; font-weight:700; letter-spacing:.01em; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-shadow:0 1px 2px rgba(0,0,0,.18); }
+  .wfb-col-header-count { font-size:11px; font-weight:800; background:rgba(255,255,255,.28); border-radius:12px; padding:1px 8px; flex-shrink:0; min-width:22px; text-align:center; line-height:18px; }
+  .wfb-col-header-btn { background:none; border:none; cursor:pointer; color:rgba(255,255,255,.8); line-height:1; padding:2px 4px; border-radius:4px; transition:background .12s, color .12s; flex-shrink:0; }
+  .wfb-col-header-btn:hover { color:#fff; background:rgba(255,255,255,.2); }
+
+  /* Column body */
+  .wfb-col-body { padding:7px; flex:1; }
+  /* Legacy — hidden */
+  .wfb-col-head { display:none; }
+
+  /* ── Cards ───────────────────────────────────────────────────────────────── */
+  .wfb-card { background:#fff; border:1px solid #E4E9F2; border-left:3px solid var(--accent); border-radius:8px; margin-bottom:6px; cursor:pointer; font-size:var(--t-13); box-shadow:0 1px 2px rgba(0,0,0,.05); transition:box-shadow .15s, transform .15s; overflow:hidden; }
+  .wfb-card:hover { box-shadow:0 4px 12px rgba(0,0,0,.10); transform:translateY(-1px); }
+  .wfb-card.dragging { opacity:.4; }
+  .wfb-card .wfb-warn { font-size:var(--t-xs); color:var(--red); margin-top:4px; }
+  /* Card top content */
+  .wfb-card-collapsed { padding:9px 10px 7px; }
+  /* Card footer */
+  .wfb-card-footer { display:flex; align-items:center; gap:5px; padding:4px 10px 5px; border-top:1px solid #EBF0F7; background:#F7F9FC; min-height:28px; }
+  /* Tech avatar circles */
+  .wfb-av { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; font-size:9px; font-weight:800; flex-shrink:0; border:2px solid #fff; letter-spacing:-.5px; }
+  .wfb-av + .wfb-av { margin-left:-6px; } /* overlap */
+  .wfb-av-group { display:inline-flex; align-items:center; }
+  .wfb-av-overflow { font-size:10px; color:var(--ink-3); font-weight:700; margin-left:3px; flex-shrink:0; }
+  .wfb-av-unassigned { background:#EBF0F7; color:var(--ink-4); font-size:10px; }
+  /* Footer stats */
+  .wfb-ft-divider { width:1px; height:14px; background:#DDE3EC; flex-shrink:0; margin:0 2px; }
+  .wfb-ft-stat { display:inline-flex; align-items:center; gap:2px; font-size:10px; color:var(--ink-3); white-space:nowrap; }
+  .wfb-ft-stat-icon { font-size:10px; line-height:1; }
+  .wfb-ft-crown { font-size:11px; line-height:1; }
+  .wfb-ft-timer { font-size:10px; color:var(--ink-3); font-weight:600; font-variant-numeric:tabular-nums; margin-left:auto; white-space:nowrap; }
+  .wfb-ft-timer.is-watch  { color:#B45309; }
+  .wfb-ft-timer.is-behind { color:#C2410C; }
+  .wfb-ft-timer.is-overdue{ color:#B91C1C; font-weight:800; }
+
+  /* ── Collapsed column ────────────────────────────────────────────────────── */
+  .wfb-col.is-collapsed { flex:0 0 40px !important; min-height:120px; }
+  /* In collapsed state the header bar becomes a full-width color stripe */
+  .wfb-col.is-collapsed .wfb-col-header { padding:9px 0; justify-content:center; min-height:36px; }
+  .wfb-col.is-collapsed .wfb-col-header-title { display:none; }
+  .wfb-col.is-collapsed .wfb-col-header-count { display:none; }
+  /* The body area shows rotated label + count + expand button vertically */
+  .wfb-col-collapsed-body { display:flex; flex-direction:column; align-items:center; gap:6px; padding:8px 0 10px; }
+  .wfb-col-collapsed-label { writing-mode:vertical-rl; transform:rotate(180deg); font-size:10px; font-weight:700; color:var(--ink-2); white-space:nowrap; max-height:140px; overflow:hidden; text-overflow:ellipsis; line-height:1.3; }
+  .wfb-col-collapsed-count { font-size:9px; font-weight:700; background:#E4E9F2; color:var(--ink-3); border-radius:8px; padding:1px 5px; }
+
+  /* Toggle button — always white-on-color when inside header */
+  .wfb-col-toggle { background:none; border:none; cursor:pointer; color:rgba(255,255,255,.85); font-size:15px; line-height:1; padding:1px 4px; border-radius:3px; transition:background .1s, color .1s; }
+  .wfb-col-toggle:hover { background:rgba(255,255,255,.2); color:#fff; }
+
+  /* Empty column */
+  .wfb-col-empty { font-size:10px; color:var(--ink-4); padding:10px 0 8px; text-align:center; }
+  .wfb-col-empty::before { content:''; display:block; width:20px; height:1px; background:var(--rule); margin:0 auto 6px; }
+
+  /* ── Status motion cues ─────────────────────────────────────────────────── */
+  /* Breathing glow for in-progress jobs: very gentle scale + blue box-shadow. */
+  @keyframes wfb-breathe {
+    0%,100% { box-shadow:0 0 0 0 rgba(37,99,235,.10),var(--shadow-card); transform:scale(1); }
+    50%      { box-shadow:0 0 0 6px rgba(37,99,235,.12),var(--shadow-card); transform:scale(1.006); }
+  }
+  /* Amber pulse for watch state (75–100% of estimate). */
+  @keyframes wfb-amber-glow {
+    0%,100% { box-shadow:0 0 0 0 rgba(245,158,11,.10),var(--shadow-card); }
+    50%      { box-shadow:0 0 0 6px rgba(245,158,11,.18),var(--shadow-card); }
+  }
+  /* Orange pulse for behind (100–125%). */
+  @keyframes wfb-orange-glow {
+    0%,100% { box-shadow:0 0 0 0 rgba(251,146,60,.12),var(--shadow-card); }
+    50%      { box-shadow:0 0 0 7px rgba(251,146,60,.22),var(--shadow-card); }
+  }
+  /* Red pulse for overdue (>125%). Slower than flashing — stays professional. */
+  @keyframes wfb-red-glow {
+    0%,100% { box-shadow:0 0 0 0 rgba(239,68,68,.12),var(--shadow-card); }
+    50%      { box-shadow:0 0 0 7px rgba(239,68,68,.22),var(--shadow-card); }
+  }
+  /* Badge-only shimmer for waiting states. */
+  @keyframes wfb-badge-breathe {
+    0%,100% { opacity:1; }
+    50%      { opacity:.55; }
+  }
+
+  .wfb-card.is-in-progress { animation:wfb-breathe 3.5s ease-in-out infinite; }
+  .wfb-card.is-watch  { outline:1px solid rgba(245,158,11,.35); animation:wfb-amber-glow 3s ease-in-out infinite; }
+  .wfb-card.is-behind { outline:1px solid rgba(251,146,60,.45); animation:wfb-orange-glow 2.5s ease-in-out infinite; }
+  .wfb-card.is-overdue{ outline:1px solid rgba(239,68,68,.45);  animation:wfb-red-glow 2s ease-in-out infinite; }
+  /* Waiting: only the status badge shimmers, not the whole card. */
+  .wfb-card.is-waiting .badge { animation:wfb-badge-breathe 2.8s ease-in-out infinite; }
+  /* Ready: static soft green glow — no looping animation needed. */
+  .wfb-card.is-ready { box-shadow:0 0 0 2px rgba(22,163,74,.18),var(--shadow-card); outline:1px solid rgba(22,163,74,.30); }
+
+  /* Card expand handle */
+  .card-expand-handle {
+    display: flex; align-items: center; justify-content: center;
+    padding: 2px 0 3px;
+    border-top: 1px solid #EBF0F7;
+    cursor: pointer; color: var(--ink-4); user-select: none;
+    transition: background .12s, color .12s;
+    background: #F7F9FC;
+  }
+  .card-expand-handle:hover { background: #EBF0F7; color: var(--ink-2); }
+  .card-expand-handle:active { opacity: .7; }
+  .card-expand-arrow { font-size: 11px; line-height: 1; }
+
+  /* Photo filter tab active state */
+  #drawer-photo-filters .btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  /* Drawer header subtitle */
+  .drawer-subtitle { font-size: var(--t-13); color: var(--ink-2); margin-top: 3px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+  /* Collapsed workflow column */
+  .wfb-col.is-collapsed { flex: 0 0 40px !important; min-height: 80px; }
+  .wfb-col.is-collapsed .wfb-col-header { padding: 10px 0; justify-content: center; }
+  .wfb-col.is-collapsed .wfb-col-header-title,
+  .wfb-col.is-collapsed .wfb-col-header-menu { display: none; }
+  .wfb-col.is-collapsed .wfb-col-header-count { display: none; }
+  .wfb-col-collapse-head { display: flex; flex-direction: column; align-items: center; gap: var(--s2); padding: var(--s2) 0 var(--s1); }
+  .wfb-col-collapse-label { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 10px; font-weight: 700; color: var(--ink-2); white-space: nowrap; max-height: 130px; overflow: hidden; text-overflow: ellipsis; margin: 2px 0; }
+  .wfb-col-toggle { background: none; border: none; cursor: pointer; color: rgba(255,255,255,.8); font-size: 13px; line-height: 1; padding: 1px 4px; border-radius: 3px; transition: background .1s, color .1s; }
+  .wfb-col-toggle:hover { background: rgba(255,255,255,.2); color: #fff; }
+
+  /* Rewards crown chip — drawer use only; board uses .wfb-ft-crown */
+  .rw-crown-chip { background: #FEF3C7; color: #92400E; font-size: 9px; padding: 1px 5px; border-radius: var(--r-chip); font-weight: 600; vertical-align: middle; }
+
+  /* Collaboration notes */
+  .collab-note { background: var(--canvas); border: 1px solid var(--rule); border-radius: var(--r-md); padding: var(--s2) var(--s3); margin-bottom: var(--s2); }
+  .collab-note.is-customer-visible { border-left: 3px solid var(--accent); }
+  .collab-note-meta { display: flex; align-items: center; gap: var(--s2); margin-bottom: 4px; font-size: var(--t-xs); color: var(--ink-3); }
+  .collab-note-author { font-weight: 600; color: var(--ink-2); }
+  .collab-note-vis { font-size: 9px; background: var(--accent-lt); color: var(--accent-ink); border-radius: var(--r-chip); padding: 1px 5px; font-weight: 600; }
+  .collab-note-body { font-size: var(--t-13); color: var(--ink); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+  .note-mention { color: var(--accent); font-weight: 600; }
+  /* Activity timeline */
+  .colab-activity-list { list-style: none; padding: 0; margin: 0; }
+  .colab-activity-item { display: flex; align-items: flex-start; gap: var(--s2); padding: 4px 0; font-size: var(--t-xs); color: var(--ink-3); border-bottom: 1px solid var(--rule); }
+  .colab-activity-item:last-child { border-bottom: none; }
+  .colab-activity-icon { flex-shrink: 0; width: 18px; text-align: center; font-size: 11px; }
+  .colab-activity-label { flex: 1; color: var(--ink-2); }
+  .colab-activity-actor { color: var(--ink-3); }
+  .colab-activity-time { flex-shrink: 0; color: var(--ink-4); white-space: nowrap; }
+
+  /* Drawer grouped sections */
+  .drawer-section { margin-bottom: var(--s4); }
+  .drawer-section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--s2); padding-bottom: 4px; border-bottom: 1px solid var(--rule); }
+  .drawer-section-title { font-size: var(--t-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); }
+  .drawer-drow { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--s3); font-size: var(--t-13); padding: 3px 0; }
+  .drawer-drow-label { color: var(--ink-3); white-space: nowrap; flex-shrink: 0; }
+  .drawer-drow-value { text-align: right; word-break: break-word; }
+
+  /* ── Drawer edit mode ─────────────────────────────────────────────────────── */
+
+  /* Wrapper: thin blue left-border to signal the whole pane is editable */
+  .drawer-edit-mode {
+    border-left: 3px solid var(--accent);
+    padding-left: var(--s3);
+    margin-left: calc(-1 * var(--s3));
+    border-radius: 0 var(--r-md) var(--r-md) 0;
+  }
+
+  /* Sticky Save/Cancel bar at the top of the edit form */
+  .drawer-edit-actions {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--card);
+    border-bottom: 1px solid var(--rule);
+    padding: var(--s3) 0 var(--s3);
+    margin-bottom: var(--s3);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s2);
+  }
+
+  /* "Editing" mode chip */
+  .edit-mode-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: rgba(31,94,224,.08);
+    border: 1px solid rgba(31,94,224,.20);
+    border-radius: var(--r-chip);
+    padding: 2px 8px;
+  }
+  .edit-mode-chip::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+  }
+
+  /* Editable inputs inside edit mode — stronger border + warmer bg */
+  .drawer-edit-input,
+  .drawer-edit-select {
+    background: #fff !important;
+    border: 1.5px solid #93C5FD !important; /* blue-200 — clearly editable */
+    box-shadow: inset 0 1px 2px rgba(0,0,0,.04) !important;
+  }
+  .drawer-edit-input:focus,
+  .drawer-edit-select:focus {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 3px rgba(31,94,224,.15), inset 0 1px 2px rgba(0,0,0,.03) !important;
+    outline: none !important;
+  }
+  .drawer-edit-input:hover:not(:focus),
+  .drawer-edit-select:hover:not(:focus) {
+    border-color: #60A5FA !important; /* blue-400 on hover */
+  }
+  /* Textarea rows need consistent height */
+  textarea.drawer-edit-input {
+    min-height: 60px;
+    resize: vertical;
+  }
+
+  /* Edit-mode field labels — slightly heavier to distinguish from read rows */
+  .drawer-edit-mode .label {
+    color: var(--ink-2);
+    font-weight: 700;
+  }
+
+  /* Reduced-motion: strip all animations, keep static outline/glow cues. */
+  @media (prefers-reduced-motion: reduce) {
+    .wfb-card.is-in-progress,
+    .wfb-card.is-watch,
+    .wfb-card.is-behind,
+    .wfb-card.is-overdue        { animation:none !important; transform:none !important; }
+    .wfb-card.is-waiting .badge { animation:none !important; }
+  }
 </style>
 </head>
 <body>
@@ -73,57 +357,61 @@
         <!-- MAIN CALENDAR (primary view) + side panels -->
         <div class="sched2-layout">
           <div class="card">
-            <div class="card-head">
-              <div class="card-title">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg>
-                Schedule Board
+            <!-- Row 1: Nav + view toggles + filters -->
+            <div class="sb-r1">
+              <div class="sb-nav-group">
+                <button class="sb-nav-btn" onclick="window.goPrevious()">‹</button>
+                <button class="sb-nav-btn" onclick="window.goToday()">Today</button>
+                <button class="sb-nav-btn" onclick="window.goNext()">›</button>
+                <div class="sb-nav-divider"></div>
+                <input type="date" class="sb-date-input" id="cal-date">
               </div>
-              <span class="muted" id="date-label" style="font-weight:600"></span>
+              <div class="sched2-viewbtns">
+                <button id="view-day">Day</button>
+                <button id="view-week">Week</button>
+                <button id="view-month">Month</button>
+              </div>
+              <div class="sched2-viewbtns" id="day-mode-row" style="display:none">
+                <button id="daymode-workflow">Workflow</button>
+                <button id="daymode-calendar">Calendar</button>
+              </div>
+              <select class="sb-filter-sel" id="filter-status">
+                <option value="">All Status</option>
+                <option value="estimates_requests">Requests / Estimates</option>
+                <option value="walk_in">Walk-Ins</option>
+                <option value="scheduled">Scheduled</option>
+                <option value="dropped_off">Dropped Off / Checked In</option>
+                <option value="waiting_bay">Assigned / Waiting Bay</option>
+                <option value="in_progress">In Progress</option>
+                <option value="quality_check">Quality Check / Wrap Up</option>
+                <option value="waiting_approval">Waiting Approval</option>
+                <option value="waiting_parts">Waiting Parts</option>
+                <option value="ready_for_pickup">Ready for Pickup</option>
+                <option value="picked_up_closed">Picked Up / Closed</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+              <select class="sb-filter-sel" id="filter-tech"><option value="">All Techs</option></select>
+              <select class="sb-filter-sel" id="filter-bay"><option value="">All Bays</option></select>
+              <select class="sb-filter-sel" id="filter-type">
+                <option value="">All Types</option>
+                <option value="wait">Wait at shop</option>
+                <option value="drop_off">Drop-off</option>
+              </select>
+              <input type="search" class="sb-filter-search" id="filter-search" placeholder="Search jobs…">
             </div>
-            <div class="card-body">
-              <div class="sched2-toolbar">
-                <div class="sched2-toolbar-left">
-                  <button class="btn btn-secondary btn-sm" onclick="window.goPrevious()">← Prev</button>
-                  <button class="btn btn-secondary btn-sm" onclick="window.goToday()">Today</button>
-                  <button class="btn btn-secondary btn-sm" onclick="window.goNext()">Next →</button>
-                  <input type="date" class="input" id="cal-date" style="width:auto">
-                </div>
-                <div class="sched2-viewbtns">
-                  <button id="view-day">Day</button>
-                  <button id="view-week">Week</button>
-                  <button id="view-month">Month</button>
-                </div>
-              </div>
-              <div class="sched2-toolbar" id="day-mode-row">
-                <div class="sched2-viewbtns">
-                  <button id="daymode-workflow">Workflow View</button>
-                  <button id="daymode-calendar">Calendar View</button>
-                </div>
-              </div>
 
-              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:var(--s2);margin-bottom:var(--s4)">
-                <select class="select" id="filter-status">
-                  <option value="">All Status</option>
-                  <option value="scheduled">Scheduled</option>
-                  <option value="waiting">Waiting</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="on_hold">On Hold</option>
-                  <option value="ready">Ready</option>
-                  <option value="cancelled">Cancelled</option>
-                </select>
-                <select class="select" id="filter-tech"><option value="">All Technicians</option></select>
-                <select class="select" id="filter-bay"><option value="">All Bays</option></select>
-                <select class="select" id="filter-type">
-                  <option value="">All Types</option>
-                  <option value="wait">Wait at shop</option>
-                  <option value="drop_off">Drop-off</option>
-                </select>
-                <input type="search" class="input" id="filter-search" placeholder="Search customer, RO, vehicle…">
-              </div>
+            <!-- Row 2: Board tools (JS) + Walk-In -->
+            <div class="sb-r2">
+              <div id="sb-r2-tools"></div>
+              <div id="walkin-slot"></div>
+            </div>
 
-              <div id="cal-body"></div>
+            <!-- Board area: bay strip + workflow columns (rendered by JS) -->
+            <div id="cal-body"></div>
+            <details id="legend-details" style="padding:0 16px var(--s3);display:none">
+              <summary class="legend-summary">▸ Color key</summary>
               <div id="legend" class="sched2-legend"></div>
-            </div>
+            </details>
           </div>
 
           <div class="stack">
@@ -167,11 +455,17 @@
 <!-- APPOINTMENT DETAIL DRAWER (uses the shared .overlay/.drawer system) -->
 <div id="appt-drawer-overlay" class="overlay">
   <div class="drawer">
-    <div class="modal-head">
-      <div class="modal-title" id="drawer-title"></div>
-      <button class="icon-btn" onclick="window.closeDrawer()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    <div class="modal-head" style="align-items:flex-start;padding-bottom:var(--s3)">
+      <div style="flex:1;min-width:0">
+        <div class="modal-title" id="drawer-title"></div>
+        <div class="drawer-subtitle" id="drawer-subtitle"></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:var(--s2);flex-shrink:0;margin-top:2px">
+        <div id="drawer-header-actions"></div>
+        <button class="icon-btn" onclick="window.closeDrawer()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+      </div>
     </div>
-    <div class="modal-body" id="drawer-body"></div>
+    <div class="modal-body" id="drawer-body" style="padding-top:var(--s4)"></div>
   </div>
 </div>
 
