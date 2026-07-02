@@ -5,7 +5,7 @@
 // Builder with the lines pre-filled.
 import { util } from '../../lib/util.js';
 import { toast } from '../../lib/nav.js';
-import { setBuilderPrefill } from './quotes-app.js';
+import { setBuilderPrefill } from './quotes-app.js?v=3';
 
 export function renderQuoteTemplates(mount) {
   const templates = util.quoteTemplates();

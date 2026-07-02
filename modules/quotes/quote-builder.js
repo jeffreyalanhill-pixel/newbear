@@ -7,8 +7,8 @@
 import { db } from '../../lib/data.js';
 import { util } from '../../lib/util.js';
 import { toast } from '../../lib/nav.js';
-import { takeBuilderPrefill, refreshQuotesApp } from './quotes-app.js';
-import { openQuoteDetail } from './quote-detail.js';
+import { takeBuilderPrefill, refreshQuotesApp } from './quotes-app.js?v=3';
+import { openQuoteDetail } from './quote-detail.js?v=2';
 
 const TYPES = [
   { value: 'service', label: 'Service' },

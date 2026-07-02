@@ -232,6 +232,27 @@ ul,ol{list-style:none} img,svg{display:block;max-width:100%}
 .modal-foot{display:flex;justify-content:flex-end;gap:var(--s3);padding:var(--s4) var(--s6);border-top:1px solid var(--rule)}
 .drawer{margin-left:auto;height:100%;width:min(480px,92vw);background:var(--card);box-shadow:var(--shadow-pop);transform:translateX(16px);transition:transform .2s;overflow-y:auto;border-left:1px solid var(--rule)}
 .overlay.open .drawer{transform:none}
+
+/* ── Record Drawer shell (shared across Quote / Customer / RO / Invoice) ──── */
+.rd-head{display:flex;align-items:flex-start;gap:var(--s3);padding:var(--s5) var(--s5) var(--s3);border-bottom:1px solid var(--rule);background:var(--card)}
+.rd-head-main{flex:1;min-width:0}
+.rd-title{font-size:var(--t-lg);font-weight:800;letter-spacing:-.01em;color:var(--ink);display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap}
+.rd-title .badge{font-size:var(--t-xs)}
+.rd-subtitle{color:var(--ink-3);font-size:var(--t-13);margin-top:2px;overflow:hidden;text-overflow:ellipsis}
+.rd-close{flex-shrink:0}
+.rd-summary{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3) var(--s4);margin:var(--s4) var(--s5) 0;padding:var(--s4);background:var(--canvas);border:1px solid var(--rule);border-radius:var(--r-md)}
+.rd-sum-item{min-width:0}
+.rd-sum-label{font-size:10px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em}
+.rd-sum-value{font-size:var(--t-13);color:var(--ink);margin-top:1px;overflow:hidden;text-overflow:ellipsis}
+.rd-tabs{display:flex;gap:2px;padding:var(--s3) var(--s5) 0;border-bottom:1px solid var(--rule);background:var(--card);overflow-x:auto;scrollbar-width:none;position:sticky;top:0;z-index:5}
+.rd-tabs::-webkit-scrollbar{display:none}
+.rd-tab{border:none;background:none;cursor:pointer;font-size:var(--t-13);font-weight:600;color:var(--ink-3);padding:6px 10px 8px;border-bottom:2px solid transparent;white-space:nowrap;transition:color .12s,border-color .12s}
+.rd-tab:hover{color:var(--ink)}
+.rd-tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:700}
+.rd-tab-badge{background:var(--canvas);border-radius:8px;font-size:10px;padding:0 6px;font-weight:700}
+.rd-tab.active .rd-tab-badge{background:var(--accent-lt,#EAF1FF);color:var(--accent)}
+.rd-body{padding:var(--s4) var(--s5) var(--s6)}
+.rd-actions{display:flex;gap:var(--s2);flex-wrap:wrap;padding:var(--s3) var(--s5);border-top:1px solid var(--rule);position:sticky;bottom:0;background:var(--card);z-index:5}
 .tabs{display:flex;gap:var(--s1);border-bottom:1px solid var(--rule)}
 .tab{padding:var(--s3) var(--s4);font-size:var(--t-base);font-weight:600;color:var(--ink-3);border-bottom:2px solid transparent;transition:all .15s;cursor:pointer} .tab:hover{color:var(--ink-2)} .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
 .timeline{display:flex;flex-direction:column}

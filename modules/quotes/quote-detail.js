@@ -8,9 +8,10 @@
 import { db } from '../../lib/data.js';
 import { util } from '../../lib/util.js';
 import { toast, confirmDialog } from '../../lib/nav.js';
-import { openQuoteDrawer, closeQuoteDrawer, refreshQuotesApp } from './quotes-app.js';
+import { closeQuoteDrawer, refreshQuotesApp } from './quotes-app.js?v=3';
 import * as workflow from '../../lib/workflow.js';
 import { showMessagePreview, printHTML, copyToClipboard } from '../../lib/export.js';
+import { renderRecordDrawer } from '../../lib/record-drawer.js';
 
 const TYPE_LABEL = { service: 'Service', labor: 'Labor', parts: 'Part', tires: 'Tire', fluids: 'Fluid', fees: 'Fee', discount: 'Discount', inspection: 'Inspection', diagnostic: 'Diagnostic' };
 const LINE_STATUS_BADGE = { recommended: 'badge-blue', approved: 'badge-green', declined: 'badge-red', deferred: 'badge-purple', optional: 'badge-amber' };
@@ -22,39 +23,53 @@ const GROUP_ORDER = ['Services', 'Labor', 'Parts', 'Fees'];
 // state until "Submit Selections" is clicked; nothing here touches db.*.
 let pendingDecisions = {};
 
-export function openQuoteDetail(quoteId) {
+const QUOTE_TABS = ['overview', 'items', 'preview', 'approval', 'ro', 'activity'];
+let activeQuoteTab = 'overview';
+
+export function openQuoteDetail(quoteId, tab) {
   pendingDecisions = {};
-  renderDrawer(quoteId, false);
+  activeQuoteTab = QUOTE_TABS.includes(tab) ? tab : 'overview';
+  const drawerEl = document.getElementById('quote-drawer');
+  if (drawerEl) delete drawerEl.dataset.rdTab; // fresh open starts on requested tab
+  renderDrawer(quoteId);
 }
 
-function renderDrawer(quoteId, customerPreview) {
+function renderDrawer(quoteId) {
   const q = db.quoteById(quoteId);
   if (!q) return;
   const c = db.customerById(q.customerId);
   const v = db.vehicleById(q.vehicleId);
   const meta = util.quoteStatusMeta(q.status);
   const ro = q.roId ? db.jobById(q.roId) : null;
+  const advisor = q.advisorId ? db.employeeById(q.advisorId) : null;
+  const canEdit = util.canUser('Quotes', 'edit');
+  const drawerEl = document.getElementById('quote-drawer');
+  if (!drawerEl) return;
 
-  openQuoteDrawer(`
-    <div class="modal-head">
-      <div>
-        <div class="modal-title">${q.quoteNumber}</div>
-        <div class="muted" style="font-size:var(--t-13)">${q.title}</div>
-      </div>
-      <button class="icon-btn" id="close-quote-drawer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
-    </div>
-    <div class="modal-body">
-      <div class="row between">
-        <span class="badge ${meta.badgeClass}">${meta.label}</span>
-        <button class="btn btn-secondary btn-sm" id="toggle-preview">${customerPreview ? '← Shop view' : 'Customer Approval Preview →'}</button>
-      </div>
-      ${customerPreview ? customerPreviewBody(q, c, v, util.canUser('Quotes', 'edit')) : shopBody(q, c, v, ro)}
-    </div>
-  `);
-
-  document.getElementById('close-quote-drawer').addEventListener('click', closeQuoteDrawer);
-  document.getElementById('toggle-preview').addEventListener('click', () => { pendingDecisions = {}; renderDrawer(quoteId, !customerPreview); });
-  wireActions(quoteId, customerPreview);
+  renderRecordDrawer(drawerEl, {
+    title: q.quoteNumber,
+    subtitle: q.title || '',
+    statusChip: { label: meta.label, badgeClass: meta.badgeClass },
+    summary: [
+      { label: 'Customer', value: `${util.customerName(c) || '—'}<br><span class="muted">${c?.phone || ''}${c?.email ? ' · ' + c.email : ''}</span>` },
+      { label: 'Vehicle',  value: `${util.vehicleLabel(v) || '—'}<br><span class="muted">${util.vehicleSub(v) || ''}</span>` },
+      { label: 'Advisor',  value: advisor ? `${advisor.firstName} ${advisor.lastName}` : '—' },
+      { label: 'Valid until', value: q.validUntil ? util.fmtDate(q.validUntil) : '—' },
+    ],
+    tabs: [
+      { id: 'overview', label: 'Overview',         render: (el) => { el.innerHTML = overviewTab(q, ro); wireActions(quoteId); } },
+      { id: 'items',    label: 'Line Items',       badge: (q.lineItems || []).length, render: (el) => { el.innerHTML = lineItemsTab(q, canEdit); wireActions(quoteId); } },
+      { id: 'preview',  label: 'Customer Preview', render: (el) => { el.innerHTML = customerPreviewBody(q, c, v, canEdit); wireActions(quoteId); } },
+      { id: 'approval', label: 'Approval',         render: (el) => { el.innerHTML = approvalTab(q, ro); wireActions(quoteId); } },
+      { id: 'ro',       label: 'Related RO',       render: (el) => { el.innerHTML = relatedRoTab(q, ro); } },
+      { id: 'activity', label: 'Activity',         render: (el) => { el.innerHTML = activityTab(q); } },
+    ],
+    activeTab: activeQuoteTab,
+    defaultTab: 'overview',
+    onTabChange: (t) => { activeQuoteTab = t; pendingDecisions = {}; },
+    onClose: closeQuoteDrawer,
+  });
+  document.getElementById('quote-overlay')?.classList.add('open');
 }
 
 function customerSummaryCard(c, v) {
@@ -73,81 +88,133 @@ function customerSummaryCard(c, v) {
     </div>`;
 }
 
-function shopBody(q, c, v, ro) {
-  const stockBadge = (line) => {
-    if (!line.partId) return '';
-    const p = db.partById(line.partId);
-    if (!p) return '';
-    if (p.qtyOnHand <= 0) return '<span class="stock-pill out">Special Order</span>';
-    if (p.qtyOnHand <= p.reorderPoint) return `<span class="stock-pill low">Low Stock (${p.qtyOnHand})</span>`;
-    return `<span class="stock-pill in">In Stock (${p.qtyOnHand})</span>`;
-  };
+function stockBadge(line) {
+  if (!line.partId) return '';
+  const p = db.partById(line.partId);
+  if (!p) return '';
+  if (p.qtyOnHand <= 0) return '<span class="stock-pill out">Special Order</span>';
+  if (p.qtyOnHand <= p.reorderPoint) return `<span class="stock-pill low">Low Stock (${p.qtyOnHand})</span>`;
+  return `<span class="stock-pill in">In Stock (${p.qtyOnHand})</span>`;
+}
 
+// ── Overview tab: concern/diagnosis, notes, total, primary actions ──────────
+function overviewTab(q, ro) {
   const lead = q.leadId ? db.leadById(q.leadId) : null;
-  const dviLink = workflow.getLinkedEntities('quote', q.id).find((l) => l.relationshipType === 'dvi_to_quote');
-  const sourceRo = dviLink ? db.jobById(dviLink.sourceType === 'job' ? dviLink.sourceId : dviLink.targetId) : null;
   const followUps = workflow.openFollowUpTasks().filter((t) => t.relatedType === 'quote' && t.relatedId === q.id);
-  const canEdit = util.canUser('Quotes', 'edit');
   const canCreate = util.canUser('Quotes', 'create');
-  const canDelete = util.canUser('Quotes', 'delete');
-
   return `
-    ${customerSummaryCard(c, v)}
-    <div class="grid-2" style="margin-top:var(--s3);gap:var(--s2)">
-      <div class="muted" style="font-size:var(--t-13)">Advisor: ${db.employeeById(q.advisorId)?.firstName || '—'}</div>
-      <div class="muted" style="font-size:var(--t-13);text-align:right">Valid until ${util.fmtDate(q.validUntil)}</div>
+    ${lead ? `<div class="row" style="margin-bottom:var(--s2)"><span class="badge badge-purple">Linked CRM lead: ${lead.firstName} ${lead.lastName}</span></div>` : ''}
+    ${q.concern ? `<div style="margin-bottom:var(--s3)"><div class="section-label" style="margin-bottom:4px">Concern</div><div style="font-size:var(--t-13)">${q.concern}</div></div>` : ''}
+    ${q.diagnosisNotes ? `<div style="margin-bottom:var(--s3)"><div class="section-label" style="margin-bottom:4px">Diagnosis</div><div style="font-size:var(--t-13)">${q.diagnosisNotes}</div></div>` : ''}
+
+    <div class="totals-box">
+      <div class="tr-row grand"><span>Quote total</span><span>${util.fmtMoney(q.total)}</span></div>
     </div>
-    ${lead ? `<div class="row" style="margin-top:var(--s2)"><span class="badge badge-purple">Linked CRM lead: ${lead.firstName} ${lead.lastName}</span></div>` : ''}
-    ${q.concern ? `<div style="margin-top:var(--s3)"><div class="section-label" style="margin-bottom:4px">Concern</div><div style="font-size:var(--t-13)">${q.concern}</div></div>` : ''}
-    ${q.diagnosisNotes ? `<div style="margin-top:var(--s2)"><div class="section-label" style="margin-bottom:4px">Diagnosis</div><div style="font-size:var(--t-13)">${q.diagnosisNotes}</div></div>` : ''}
 
     ${canCreate ? `<div class="row" style="gap:var(--s2);flex-wrap:wrap;margin-top:var(--s4)">
-      <button class="btn btn-secondary btn-sm" id="open-send-modal">Send Quote</button>
+      <button class="btn btn-primary btn-sm" id="open-send-modal">Send Quote</button>
+      <button class="btn btn-secondary btn-sm" data-goto-tab="preview">Customer Approval Preview</button>
       <button class="btn btn-secondary btn-sm" id="print-quote">Print</button>
     </div>` : ''}
 
-    <div style="margin-top:var(--s4)">
-      <div class="section-label" style="margin-bottom:var(--s2)">Line items</div>
-      <table class="li-table">
-        <thead><tr><th>Item</th><th>Type</th><th class="num">Qty/Hrs</th><th class="num">Total</th><th>Status</th><th></th></tr></thead>
-        <tbody>
-          ${(q.lineItems || []).map((l) => `
-            <tr>
-              <td>${l.name}${stockBadge(l) ? '<br>' + stockBadge(l) : ''}</td>
-              <td>${TYPE_LABEL[l.type] || l.type}</td>
-              <td class="num">${l.type === 'labor' ? (l.hours || 0) + ' hr' : (l.qty || 1)}</td>
-              <td class="num">${util.fmtMoney(l.total)}</td>
-              <td><span class="badge ${LINE_STATUS_BADGE[l.status] || 'badge-gray'}" style="font-size:10px">${l.status}</span></td>
-              <td>
-                ${['sent', 'viewed'].includes(q.status) && canEdit ? `
-                  <button class="icon-btn" title="Approve this item" data-line-approve="${l.id}" style="width:24px;height:24px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M20 6L9 17l-5-5"/></svg></button>
-                  <button class="icon-btn" title="Decline this item" data-line-decline="${l.id}" style="width:24px;height:24px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
-                  <button class="icon-btn" title="Defer this item" data-line-defer="${l.id}" style="width:24px;height:24px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
-                ` : ''}
-              </td>
-            </tr>`).join('')}
-        </tbody>
-      </table>
-      <div class="totals-box" style="margin-top:var(--s3)">
-        <div class="tr-row"><span>Subtotal</span><span>${util.fmtMoney(q.subtotal)}</span></div>
-        ${q.discountTotal ? `<div class="tr-row"><span>Discount</span><span>-${util.fmtMoney(q.discountTotal)}</span></div>` : ''}
-        <div class="tr-row"><span>Tax</span><span>${util.fmtMoney(q.taxTotal)}</span></div>
-        <div class="tr-row grand"><span>Total</span><span>${util.fmtMoney(q.total)}</span></div>
-      </div>
-    </div>
-
-    ${q.internalNotes ? `<div class="alert alert-amber" style="margin-top:var(--s3)"><div>${q.internalNotes}</div></div>` : ''}
-    ${q.customerNotes ? `<div style="margin-top:var(--s2)"><div class="section-label" style="margin-bottom:4px">Customer notes</div><div style="font-size:var(--t-13)">${q.customerNotes}</div></div>` : ''}
+    ${q.internalNotes ? `<div class="alert alert-amber" style="margin-top:var(--s4)"><div>${q.internalNotes}</div></div>` : ''}
+    ${q.customerNotes ? `<div style="margin-top:var(--s3)"><div class="section-label" style="margin-bottom:4px">Customer notes</div><div style="font-size:var(--t-13)">${q.customerNotes}</div></div>` : ''}
     ${ro ? `<div class="alert alert-green" style="margin-top:var(--s3)">Converted to <b>${ro.ro}</b> (${util.statusMeta(ro.status).label}).</div>` : ''}
-    ${sourceRo && !ro ? `<div class="alert alert-amber" style="margin-top:var(--s3)">Built from ${sourceRo.ro}'s inspection findings.</div>` : ''}
 
     <div style="margin-top:var(--s4)">
       <div class="row between" style="margin-bottom:var(--s2)"><div class="section-label">Follow-ups</div>${canCreate ? '<button class="btn btn-secondary btn-sm" id="create-followup">+ Create Follow-Up Task</button>' : ''}</div>
       ${followUps.length ? followUps.map((t) => `<div class="followup-row"><div><div class="strong" style="font-size:var(--t-13)">${t.title}</div><div class="muted" style="font-size:var(--t-13)">Due ${util.fmtDate(t.dueAt)}</div></div></div>`).join('') : '<div class="empty-sub" style="font-size:var(--t-13)">None open.</div>'}
     </div>
-
-    <div class="row" style="gap:var(--s2);flex-wrap:wrap;margin-top:var(--s4)">${actionButtons(q, ro, sourceRo, dviLink, { canEdit, canCreate, canDelete })}</div>
   `;
+}
+
+// ── Line Items tab: full item table + totals + per-line decisions ───────────
+function lineItemsTab(q, canEdit) {
+  return `
+    <table class="li-table">
+      <thead><tr><th>Item</th><th>Type</th><th class="num">Qty/Hrs</th><th class="num">Total</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        ${(q.lineItems || []).map((l) => `
+          <tr>
+            <td>${l.name}${stockBadge(l) ? '<br>' + stockBadge(l) : ''}</td>
+            <td>${TYPE_LABEL[l.type] || l.type}</td>
+            <td class="num">${l.type === 'labor' ? (l.hours || 0) + ' hr' : (l.qty || 1)}</td>
+            <td class="num">${util.fmtMoney(l.total)}</td>
+            <td><span class="badge ${LINE_STATUS_BADGE[l.status] || 'badge-gray'}" style="font-size:10px">${l.status}</span></td>
+            <td>
+              ${['sent', 'viewed'].includes(q.status) && canEdit ? `
+                <button class="icon-btn" title="Approve this item" data-line-approve="${l.id}" style="width:24px;height:24px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M20 6L9 17l-5-5"/></svg></button>
+                <button class="icon-btn" title="Decline this item" data-line-decline="${l.id}" style="width:24px;height:24px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+                <button class="icon-btn" title="Defer this item" data-line-defer="${l.id}" style="width:24px;height:24px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
+              ` : ''}
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+    <div class="totals-box" style="margin-top:var(--s3)">
+      <div class="tr-row"><span>Subtotal</span><span>${util.fmtMoney(q.subtotal)}</span></div>
+      ${q.discountTotal ? `<div class="tr-row"><span>Discount</span><span>-${util.fmtMoney(q.discountTotal)}</span></div>` : ''}
+      <div class="tr-row"><span>Tax</span><span>${util.fmtMoney(q.taxTotal)}</span></div>
+      <div class="tr-row grand"><span>Total</span><span>${util.fmtMoney(q.total)}</span></div>
+    </div>
+  `;
+}
+
+// ── Approval tab: status-driven workflow actions + line-status summary ──────
+function approvalTab(q, ro) {
+  const dviLink = workflow.getLinkedEntities('quote', q.id).find((l) => l.relationshipType === 'dvi_to_quote');
+  const sourceRo = dviLink ? db.jobById(dviLink.sourceType === 'job' ? dviLink.sourceId : dviLink.targetId) : null;
+  const canEdit = util.canUser('Quotes', 'edit');
+  const canCreate = util.canUser('Quotes', 'create');
+  const canDelete = util.canUser('Quotes', 'delete');
+  const lines = q.lineItems || [];
+  const count = (s) => lines.filter((l) => l.status === s).length;
+  const meta = util.quoteStatusMeta(q.status);
+  const buttons = actionButtons(q, ro, sourceRo, dviLink, { canEdit, canCreate, canDelete });
+  return `
+    <div class="section-label" style="margin-bottom:var(--s2)">Current status</div>
+    <div class="row" style="gap:var(--s2);flex-wrap:wrap;margin-bottom:var(--s3)">
+      <span class="badge ${meta.badgeClass}">${meta.label}</span>
+      ${count('approved') ? `<span class="badge badge-green">${count('approved')} approved</span>` : ''}
+      ${count('declined') ? `<span class="badge badge-red">${count('declined')} declined</span>` : ''}
+      ${count('deferred') ? `<span class="badge badge-purple">${count('deferred')} deferred</span>` : ''}
+      ${count('recommended') ? `<span class="badge badge-blue">${count('recommended')} pending</span>` : ''}
+    </div>
+    ${sourceRo && !ro ? `<div class="alert alert-amber" style="margin-bottom:var(--s3)">Built from ${sourceRo.ro}'s inspection findings.</div>` : ''}
+    <div class="section-label" style="margin-bottom:var(--s2)">Actions</div>
+    ${buttons
+      ? `<div class="row" style="gap:var(--s2);flex-wrap:wrap">${buttons}</div>`
+      : `<div class="empty-sub" style="font-size:var(--t-13)">No workflow actions available for a ${meta.label.toLowerCase()} quote.</div>`}
+    <div class="empty-sub" style="font-size:var(--t-xs);margin-top:var(--s3)">Per-line approve / decline / defer lives in the Line Items tab while the quote is sent or viewed.</div>
+  `;
+}
+
+// ── Related RO tab ───────────────────────────────────────────────────────────
+function relatedRoTab(q, ro) {
+  const dviLink = workflow.getLinkedEntities('quote', q.id).find((l) => l.relationshipType === 'dvi_to_quote');
+  const sourceRo = dviLink ? db.jobById(dviLink.sourceType === 'job' ? dviLink.sourceId : dviLink.targetId) : null;
+  if (!ro && !sourceRo) return `<div class="empty" style="padding:var(--s5) 0"><div class="empty-title">No related repair order</div><div class="empty-sub">This quote hasn't been converted and wasn't built from an inspection.</div></div>`;
+  return `
+    ${ro ? `
+      <div class="alert alert-green" style="margin-bottom:var(--s3)">Converted to <b>${ro.ro}</b> (${util.statusMeta(ro.status).label}).</div>
+      <a class="btn btn-secondary btn-sm" href="repair-orders.html?jobId=${encodeURIComponent(ro.id)}">Open ${ro.ro} →</a>` : ''}
+    ${sourceRo ? `
+      <div class="alert alert-amber" style="margin:${ro ? 'var(--s3)' : '0'} 0 var(--s3)">Built from <b>${sourceRo.ro}</b>'s inspection findings.</div>
+      <a class="btn btn-secondary btn-sm" href="repair-orders.html?jobId=${encodeURIComponent(sourceRo.id)}">Open ${sourceRo.ro} →</a>` : ''}
+  `;
+}
+
+// ── Activity tab: workflow events for this quote ─────────────────────────────
+function activityTab(q) {
+  const events = (db.activityEvents?.() || [])
+    .filter((e) => e.quoteId === q.id || (e.entityType === 'quote' && e.entityId === q.id))
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  if (!events.length) return `<div class="empty" style="padding:var(--s5) 0"><div class="empty-title">No activity yet</div><div class="empty-sub">Sends, views, approvals, and prints will show here.</div></div>`;
+  return events.map((e) => `
+    <div style="padding:var(--s2) 0;border-bottom:1px solid var(--rule)">
+      <div style="font-size:var(--t-13)">${e.title}</div>
+      <div class="muted" style="font-size:var(--t-xs)">${e.createdAt ? new Date(e.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}${e.actorName ? ` · ${e.actorName}` : ''}${e.channel ? ` · ${e.channel}` : ''}</div>
+    </div>`).join('');
 }
 
 function actionButtons(q, ro, sourceRo, dviLink, perms) {
@@ -249,28 +316,35 @@ function customerPreviewBody(q, c, v, canEdit) {
   `;
 }
 
-function wireActions(quoteId, customerPreview) {
+function wireActions(quoteId) {
   const run = (fn, successMsg) => {
     try {
       fn();
       toast(successMsg, 'success');
       refreshQuotesApp();
       pendingDecisions = {};
-      renderDrawer(quoteId, customerPreview);
+      renderDrawer(quoteId);
     } catch (err) {
       toast(err.message, 'error');
     }
   };
 
+  // Tab jump buttons (e.g. Overview → Customer Approval Preview)
+  document.querySelectorAll('#quote-drawer [data-goto-tab]').forEach((b) => b.addEventListener('click', () => {
+    activeQuoteTab = b.dataset.gotoTab;
+    pendingDecisions = {};
+    renderDrawer(quoteId);
+  }));
+
   document.querySelector('[data-ready]')?.addEventListener('click', () => run(() => util.markQuoteReadyToSend(quoteId), 'Marked ready to send.'));
-  document.querySelector('[data-send]')?.addEventListener('click', () => openSendQuoteModal(quoteId, () => renderDrawer(quoteId, customerPreview)));
-  document.getElementById('open-send-modal')?.addEventListener('click', () => openSendQuoteModal(quoteId, () => renderDrawer(quoteId, customerPreview)));
+  document.querySelector('[data-send]')?.addEventListener('click', () => openSendQuoteModal(quoteId, () => renderDrawer(quoteId)));
+  document.getElementById('open-send-modal')?.addEventListener('click', () => openSendQuoteModal(quoteId, () => renderDrawer(quoteId)));
   document.getElementById('print-quote')?.addEventListener('click', () => printQuote(quoteId));
   document.getElementById('create-followup')?.addEventListener('click', () => {
     const q = db.quoteById(quoteId);
     workflow.createFollowUpTask({ title: `Follow up on ${q.quoteNumber}`, reason: 'Manually created from quote detail', customerId: q.customerId, relatedType: 'quote', relatedId: q.id, ownerId: q.advisorId });
     toast('Follow-up task created.', 'success');
-    renderDrawer(quoteId, customerPreview);
+    renderDrawer(quoteId);
   });
   document.querySelector('[data-viewed]')?.addEventListener('click', () => run(() => util.markQuoteViewed(quoteId), 'Marked as viewed by customer.'));
   document.querySelector('[data-approve]')?.addEventListener('click', async () => {

@@ -4,7 +4,7 @@
 // services. Clicking a queue pill filters the list below it.
 import { db } from '../../lib/data.js';
 import { util } from '../../lib/util.js';
-import { openQuoteDetail } from './quote-detail.js';
+import { openQuoteDetail } from './quote-detail.js?v=2';
 
 const QUEUE = [
   { status: 'draft', label: 'Draft' },

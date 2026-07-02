@@ -9,9 +9,9 @@
 import { db } from '../../lib/data.js';
 import { util } from '../../lib/util.js';
 import { renderNav } from '../../lib/nav.js';
-import { renderQuotesDashboard } from './quotes-dashboard.js';
-import { renderQuoteBuilder } from './quote-builder.js';
-import { renderQuoteTemplates } from './quote-templates.js';
+import { renderQuotesDashboard } from './quotes-dashboard.js?v=2';
+import { renderQuoteBuilder } from './quote-builder.js?v=2';
+import { renderQuoteTemplates } from './quote-templates.js?v=2';
 
 const VIEWS = {
   dashboard: renderQuotesDashboard,
@@ -52,6 +52,14 @@ export function renderQuotesApp() {
   });
   window.addEventListener('hashchange', renderCurrentView);
   renderCurrentView();
+
+  // Deep link: ?quoteId=<id> opens that quote's detail drawer directly.
+  // Dynamic import — quote-detail.js imports openQuoteDrawer from this module,
+  // so a static import here would create a cycle.
+  const quoteId = new URLSearchParams(location.search).get('quoteId');
+  if (quoteId && db.quoteById(quoteId)) {
+    import('./quote-detail.js?v=2').then((m) => m.openQuoteDetail(quoteId, new URLSearchParams(location.search).get('tab')));
+  }
 }
 
 function renderCurrentView() {
