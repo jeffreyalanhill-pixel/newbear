@@ -35,6 +35,11 @@ export function renderRepairOrders() {
     { label: 'Export JSON', onClick: exportRoListJSON },
     { label: 'Copy Summary', onClick: copyRoListSummary },
   ]);
+
+  // Deep link: ?jobId=<id> (or ?roId=) opens that repair order's drawer directly
+  const params = new URLSearchParams(location.search);
+  const deepLinkId = params.get('jobId') || params.get('roId');
+  if (deepLinkId && db.jobById(deepLinkId)) openDrawer(deepLinkId);
 }
 
 function populateTechFilter() {

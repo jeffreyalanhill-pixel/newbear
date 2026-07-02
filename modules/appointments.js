@@ -3,7 +3,7 @@
 // Calendar view. Real data sources: db.jobs/db.bookings/db.employees/
 // db.bays/db.settings via util.* RO/booking transitions.
 
-import { db } from '../lib/data.js';
+import { db } from '../lib/data.js?v=5';
 import { util } from '../lib/util.js';
 import { renderNav, toast, confirmDialog } from '../lib/nav.js';
 import {
@@ -27,6 +27,7 @@ let filterType = '';
 let timingInterval = null; // single board-refresh interval for live in-progress timers
 let boardMetricView = 'overview'; // overview | money | time | capacity | techs | bottlenecks
 let boardCardView   = 'minimal';  // minimal | detailed — persisted to settings
+let boardTab        = 'all';      // all | intake | shopfloor | bay_<id> | unassigned | ready
 let collapsedCols   = {};         // stageId → true — persisted to settings
 const expandedCards = new Set();  // IDs of individually-expanded cards (in-memory only)
 
@@ -132,7 +133,7 @@ const WORKFLOW_STATUS_MAP = {
   checked_in:          'dropped_off',
   dropped_off:         'dropped_off',
   // waiting bay
-  waiting_bay:         'waiting_bay',
+  waiting_bay:         'dropped_off',   // merged into Checked In (display-only; stored value untouched)
   // in progress
   in_progress:         'in_progress',
   // hold states (flat — on_hold still handled contextually in deriveWorkflowStage)
@@ -184,8 +185,7 @@ const PRIMARY_STAGES = [
   { id: 'estimates_requests', label: 'Requests / Estimates',       color: '#2563EB', bgTint: 'rgba(37,99,235,0.05)'   },
   { id: 'walk_in',            label: 'Walk-Ins',                   color: '#0891B2', bgTint: 'rgba(8,145,178,0.05)',  isWalkIn: true },
   { id: 'scheduled',          label: 'Scheduled',                  color: '#3B82F6', bgTint: 'rgba(59,130,246,0.05)'  },
-  { id: 'dropped_off',        label: 'Dropped Off / Checked In',   color: '#7C3AED', bgTint: 'rgba(124,58,237,0.05)'  },
-  { id: 'waiting_bay',        label: 'Assigned / Waiting Bay',     color: '#9333EA', bgTint: 'rgba(147,51,234,0.05)'  },
+  { id: 'dropped_off',        label: 'Checked In',                 color: '#7C3AED', bgTint: 'rgba(124,58,237,0.05)'  },
   { id: 'in_progress',        label: 'In Progress',                color: '#6366F1', bgTint: 'rgba(99,102,241,0.06)'  },
   { id: 'quality_check',      label: 'Quality Check / Wrap Up',    color: '#8B5CF6', bgTint: 'rgba(139,92,246,0.05)'  },
   { id: 'ready_for_pickup',   label: 'Ready for Pickup',           color: '#16A34A', bgTint: 'rgba(22,163,74,0.05)'   },
@@ -199,12 +199,132 @@ const HOLD_STAGES = [
 // Combined for STAGE_META lookups — order is primary first, hold last.
 const WORKFLOW_STAGES = [...PRIMARY_STAGES, ...HOLD_STAGES];
 const STAGE_META = Object.fromEntries(WORKFLOW_STAGES.map((s) => [s.id, s]));
+
+// Board tab scope sets — used to filter visible columns and cards per tab
+const INTAKE_STAGE_IDS    = new Set(['estimates_requests', 'walk_in', 'scheduled', 'dropped_off']);
+const SHOPFLOOR_STAGE_IDS = new Set(['in_progress', 'waiting_approval', 'waiting_parts', 'quality_check', 'ready_for_pickup']);
+const READY_STAGE_IDS     = new Set(['ready_for_pickup', 'picked_up_closed']);
+const DISPATCH_STAGE_IDS  = new Set(['in_progress', 'dropped_off']); // stages where missing tech/bay is actionable
 STAGE_META.cancelled = { id: 'cancelled', label: 'Canceled',  color: '#EF4444' };
 STAGE_META.no_show   = { id: 'no_show',   label: 'No-Show',   color: '#94A3B8' };
+// Legacy stage — merged into Checked In (display-only). Kept in STAGE_META so old
+// stage-history entries and any stored waiting_bay references still render labels.
+STAGE_META.waiting_bay = { id: 'waiting_bay', label: 'Assigned / Waiting Bay', color: '#9333EA', bgTint: 'rgba(147,51,234,0.05)', isLegacy: true };
+
+// ---------------------------------------------------------------------------
+// Custom workflow steps — user-defined Kanban columns
+// ---------------------------------------------------------------------------
+const CUSTOM_STEP_COLORS = {
+  blue:   '#2563EB',
+  teal:   '#0891B2',
+  purple: '#7C3AED',
+  indigo: '#6366F1',
+  green:  '#16A34A',
+  amber:  '#F59E0B',
+  orange: '#FB923C',
+  red:    '#EF4444',
+  slate:  '#64748B',
+  pink:   '#EC4899',
+};
+const CUSTOM_STEP_GROUP_LABELS = {
+  intake:     'Intake / Check-In',
+  shopfloor:  'Shop Floor',
+  hold:       'Hold State',
+  completion: 'Completion',
+};
+
+function slugifyStepKey(name) {
+  return 'cstep_' + name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40);
+}
+
+function getActiveCustomSteps() {
+  return db.customWorkflowSteps()
+    .filter((s) => s.isActive !== false)
+    .map((s) => {
+      const colorHex = CUSTOM_STEP_COLORS[s.color] || '#6366F1';
+      return {
+        id:          s.key,
+        key:         s.key,
+        label:       s.label,
+        color:       colorHex,
+        bgTint:      colorHex + '18',
+        group:       s.group || 'shopfloor',
+        sortOrder:   s.sortOrder ?? 50,
+        requiresTech: s.requiresTech ?? false,
+        requiresBay:  s.requiresBay  ?? false,
+        description: s.description || '',
+        isCustomStep: true,
+        isHold:      s.group === 'hold',
+        rawColor:    s.color || 'indigo',
+        _raw:        s,
+      };
+    });
+}
+
+function getEffectiveStageMeta(stageId) {
+  if (STAGE_META[stageId]) return STAGE_META[stageId];
+  const custom = getActiveCustomSteps().find((s) => s.key === stageId);
+  if (custom) return { id: custom.key, label: custom.label, color: custom.color, bgTint: custom.bgTint, isCustomStep: true };
+  return STAGE_META.estimates_requests;
+}
+
+function buildCombinedStages(activeCustomSteps) {
+  const byGroup = (group) => activeCustomSteps
+    .filter((s) => s.group === group)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+  return [
+    PRIMARY_STAGES[0],                 // estimates_requests
+    PRIMARY_STAGES[1],                 // walk_in
+    PRIMARY_STAGES[2],                 // scheduled
+    PRIMARY_STAGES[3],                 // dropped_off (Checked In — absorbs legacy waiting_bay)
+    ...byGroup('intake'),
+    ...byGroup('shopfloor'),
+    PRIMARY_STAGES[4],                 // in_progress
+    PRIMARY_STAGES[5],                 // quality_check
+    PRIMARY_STAGES[6],                 // ready_for_pickup
+    ...byGroup('completion'),
+    PRIMARY_STAGES[7],                 // picked_up_closed
+    ...HOLD_STAGES,
+    ...byGroup('hold'),
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Custom board cards — lightweight sticky-note cards that live on the board
+// alongside real job cards. Stored in db.customBoardCards() separately from
+// db.jobs(); never affect workflow status or any job state.
+// ---------------------------------------------------------------------------
+const CUSTOM_CARD_TYPES = {
+  internal_task:     { label: 'Internal Task',      color: '#6366F1', icon: '📋' },
+  customer_followup: { label: 'Customer Follow-Up', color: '#2563EB', icon: '📞' },
+  parts:             { label: 'Parts',               color: '#FB923C', icon: '🔩' },
+  vendor:            { label: 'Vendor',              color: '#8B5CF6', icon: '🏪' },
+  insurance:         { label: 'Insurance',           color: '#F59E0B', icon: '📄' },
+  warranty:          { label: 'Warranty',            color: '#10B981', icon: '✅' },
+  tow_in:            { label: 'Tow-In',              color: '#0891B2', icon: '🚛' },
+  cleanup:           { label: 'Cleanup',             color: '#94A3B8', icon: '🧹' },
+  reminder:          { label: 'Reminder',            color: '#D97706', icon: '🔔' },
+  other:             { label: 'Other',               color: '#6B7280', icon: '📌' },
+};
+const CUSTOM_CARD_PRIORITY_META = {
+  low:    { label: 'Low',    cls: '',            style: 'background:#F1F5F9;color:#64748B' },
+  normal: { label: 'Normal', cls: '',            style: 'background:#EFF6FF;color:#1D4ED8' },
+  high:   { label: 'High',   cls: 'badge-amber', style: '' },
+  urgent: { label: 'Urgent', cls: 'badge-red',   style: '' },
+};
+function nextCustomCardId() {
+  return `cbc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+}
+// Returns custom cards scoped to a board date (or undated cards).
+function customCardsForDate(dateStr) {
+  return db.customBoardCards().filter((c) => !c.boardDate || c.boardDate === dateStr);
+}
 
 // Attempt the preferred util.* transition first; fall back to setJobWorkflowStatus
 // so every visible lane is always a valid drag/drop target without a red toast.
 function moveToStage(jobId, stageId, via = 'unknown') {
+  // Legacy alias — waiting_bay merged into Checked In; any remaining callers land there
+  if (stageId === 'waiting_bay') stageId = 'dropped_off';
   let job = db.jobById(jobId);
   if (!job) throw new Error('Appointment not found');
 
@@ -236,9 +356,6 @@ function moveToStage(jobId, stageId, via = 'unknown') {
     case 'dropped_off':
       if (job.status === 'scheduled') { result = util.checkIn(jobId); break; }
       result = setJobWorkflowStatus(jobId, 'dropped_off'); break;
-
-    case 'waiting_bay':
-      result = setJobWorkflowStatus(jobId, 'waiting_bay'); break;
 
     case 'in_progress':
       if (['waiting', 'on_hold'].includes(job.status)) {
@@ -276,11 +393,26 @@ function moveToStage(jobId, stageId, via = 'unknown') {
     case 'no_show':
       result = setJobWorkflowStatus(jobId, 'no_show'); break;
 
-    default:
+    default: {
+      // Custom workflow step — soft move via workflowStatus (no state-machine transitions)
+      const customStepMatch = getActiveCustomSteps().find((s) => s.key === stageId);
+      if (customStepMatch) { result = setJobWorkflowStatus(jobId, stageId); break; }
       throw new Error(`Unknown stage: "${stageId}".`);
+    }
   }
+  // Sync a stale workflowStatus soft-override after util.* transitions — those set
+  // job.status but leave any old override in place, which would keep the card
+  // pinned to its previous column (override wins in deriveWorkflowStage).
+  try {
+    const allJobs = db.jobs();
+    const ji = allJobs.findIndex((x) => x.id === jobId);
+    if (ji >= 0 && allJobs[ji].workflowStatus && allJobs[ji].workflowStatus !== stageId) {
+      allJobs[ji].workflowStatus = stageId;
+      db.saveJobs(allJobs);
+    }
+  } catch { /* non-fatal */ }
   // Stamp stage entry after every real transition (non-fatal — never blocks the move)
-  const stageLabelForHistory = STAGE_META[stageId]?.label || stageId;
+  const stageLabelForHistory = getEffectiveStageMeta(stageId)?.label || stageId;
   try { stampStageTransition(jobId, stageId, { label: stageLabelForHistory, changedVia: via }); } catch { /* non-fatal */ }
   // Log collaboration activity for stage change
   try {
@@ -296,6 +428,71 @@ function moveToStage(jobId, stageId, via = 'unknown') {
     });
   } catch { /* non-fatal */ }
   return result;
+}
+
+// Virtual locations for quick bay assignment — not real bays (no bay tab/metrics),
+// but valid "where is the car" answers. Stored in job.bayId with a loc_ prefix.
+const QA_LOCATIONS = {
+  loc_outside:  'Outside / Parking',
+  loc_waiting:  'Waiting Area',
+  loc_roadtest: 'Road Test',
+  loc_detail:   'Detail Area',
+};
+
+// Calendar rescheduling — changes the scheduled DATE only. This is deliberately
+// separate from moveToStage: no workflow status change, no stage history entry,
+// no currentStageEnteredAt stamp. Time of day is preserved.
+function rescheduleJob(jobId, patch, via = 'schedule_edit') {
+  const jobs = db.jobs();
+  const idx = jobs.findIndex((j) => j.id === jobId);
+  if (idx < 0) throw new Error('Appointment not found');
+  const job = jobs[idx];
+  const oldDate = job.scheduledDate;
+  const oldTime = job.scheduledTime || null;
+  const newDate = patch.date || oldDate;
+  let newTime = patch.time !== undefined ? (patch.time || null) : oldTime;
+  // Week drag with no time on the job: default to shop opening time for the target day
+  if (via === 'week_drag' && !newTime) {
+    const h = shopHoursFor(newDate);
+    if (!h.closed && h.open) newTime = h.open;
+  }
+  const durationMin = patch.durationMinutes ?? null;
+  if (newDate === oldDate && newTime === oldTime && durationMin == null) return job;
+
+  job.scheduledDate = newDate;
+  job.scheduledTime = newTime;
+  // Keep timing stamps in step when they exist (or when we can now derive them)
+  if (newTime) {
+    const start = new Date(`${newDate}T${newTime}:00`);
+    // Preserve prior duration if start+end existed and no new duration was given
+    let mins = durationMin;
+    if (mins == null && job.scheduledStartAt && job.scheduledEndAt) {
+      mins = Math.round((new Date(job.scheduledEndAt) - new Date(job.scheduledStartAt)) / 60000);
+    }
+    if (job.scheduledStartAt || durationMin != null) job.scheduledStartAt = start.toISOString();
+    if (mins != null && mins > 0) job.scheduledEndAt = new Date(start.getTime() + mins * 60000).toISOString();
+  } else if (job.scheduledStartAt) {
+    // Date-only move on a job with timing stamps: swap the date portion, keep time
+    const swapDate = (iso) => iso ? newDate + iso.slice(10) : iso;
+    job.scheduledStartAt = swapDate(job.scheduledStartAt);
+    if (job.scheduledEndAt) job.scheduledEndAt = swapDate(job.scheduledEndAt);
+  }
+  db.saveJobs(jobs);
+
+  const fmtD = (d) => d ? new Date(d + 'T00:00:00').toLocaleDateString([], { weekday: 'short', month: '2-digit', day: '2-digit' }) : '—';
+  const side = (d, t) => `${fmtD(d)}${t ? ` ${util.fmtTime(t)}` : ''}`;
+  try {
+    const actor = getCurrentActor();
+    appendJobActivity(jobId, {
+      id: nextCollabId('act'),
+      type: 'rescheduled',
+      label: `Appointment moved from ${side(oldDate, oldTime)} to ${side(newDate, newTime)}`,
+      actorId: actor.id, actorName: actor.name,
+      createdAt: new Date().toISOString(),
+      metadata: { from: oldDate, fromTime: oldTime, to: newDate, toTime: newTime, durationMinutes: durationMin, via },
+    });
+  } catch { /* non-fatal */ }
+  return job;
 }
 
 function normalizeAppointment(job) {
@@ -324,7 +521,7 @@ function normalizeAppointment(job) {
     leadTechId: ej.leadTechId,
     assignedTechIds: ej.assignedTechIds,
     bayId: job.bayId || null,
-    bayName: bay ? bay.name : '',
+    bayName: bay ? bay.name : (job.bayId ? (QA_LOCATIONS[job.bayId] || (db.shopConfig()?.locations || []).find((l) => l.id === job.bayId)?.name || '') : ''),
     sourceType: 'job',
     sourceId: job.id,
     _job: job,
@@ -378,10 +575,23 @@ function shopHoursFor(dateStr) {
 function getWarnings(appt, allApptsSameDay) {
   const warnings = [];
   const job = appt._job;
-  const active = new Set(['dropped_off', 'waiting_bay', 'in_progress', 'quality_check', 'waiting_approval', 'waiting_parts', 'ready_for_pickup']);
-  if (active.has(appt.workflowStage)) {
-    if (!(appt.assignedTechIds?.length > 0)) warnings.push('No technician assigned');
-    if (!appt.bayId) warnings.push('No bay assigned');
+  // Per-stage assignment requirements — read from step settings, fall back to built-in defaults
+  const stageSettings = getStepSettings(appt.workflowStage);
+  // Fallback (unknown stages only — built-ins and custom steps always resolve
+  // step settings above): only In Progress hard-requires tech + bay.
+  const defaultTechStages = new Set(['in_progress']);
+  const defaultBayStages  = new Set(['in_progress']);
+  const requiresTech = stageSettings ? stageSettings.requiresTech : defaultTechStages.has(appt.workflowStage);
+  const requiresBay  = stageSettings ? stageSettings.requiresBay  : defaultBayStages.has(appt.workflowStage);
+  if (requiresTech && !(appt.assignedTechIds?.length > 0)) warnings.push('No technician assigned');
+  if (requiresBay  && !appt.bayId)                         warnings.push('No bay assigned');
+  // Stage alert threshold warning
+  if (stageSettings?.alertAfterMinutes) {
+    const stageAge = getStageAge(job);
+    if (stageAge !== null && stageAge > stageSettings.alertAfterMinutes) {
+      const h = Math.floor(stageAge / 60); const m = Math.round(stageAge % 60);
+      warnings.push(`${stageSettings.label}: ${h > 0 ? h + 'h ' : ''}${m}m (over ${stageSettings.alertAfterMinutes < 60 ? stageSettings.alertAfterMinutes + 'm' : Math.round(stageSettings.alertAfterMinutes / 60) + 'h'} threshold)`);
+    }
   }
   const others = allApptsSameDay.filter((a) => a.id !== appt.id);
   if (appt.techId && others.some((a) => a.techId === appt.techId && a.startTime === appt.startTime)) warnings.push('Technician double-booked');
@@ -412,6 +622,13 @@ function saveBoardMetricView(v) {
 function loadBoardCardView() {
   boardCardView = db.settings().boardCardView || 'minimal';
 }
+function loadBoardTab() {
+  boardTab = db.settings().boardTab || 'all';
+}
+function saveBoardTab(v) {
+  boardTab = v;
+  try { const s = db.settings(); s.boardTab = v; db.saveSettings(s); } catch { /* non-fatal */ }
+}
 function saveBoardCardView(v) {
   boardCardView = v;
   expandedCards.clear(); // reset individual overrides when global mode changes
@@ -424,7 +641,9 @@ function saveCollapsedCols() {
   try { const s = db.settings(); s.collapsedWorkflowColumns = { ...collapsedCols }; db.saveSettings(s); } catch { /* non-fatal */ }
 }
 function toggleColCollapse(stageId) {
-  collapsedCols = { ...collapsedCols, [stageId]: !collapsedCols[stageId] };
+  const settings = getStepSettings(stageId);
+  const effective = collapsedCols[stageId] !== undefined ? collapsedCols[stageId] : (settings?.collapseByDefault ?? false);
+  collapsedCols = { ...collapsedCols, [stageId]: !effective };
   saveCollapsedCols();
   renderDayWorkflowView();
 }
@@ -485,6 +704,204 @@ const STAGE_AGING_THRESHOLD = {
   in_progress:      null, // uses timing status instead
 };
 
+// Default settings for built-in stages — user overrides are layered on top via workflowStepSettings.
+const DEFAULT_STAGE_SETTINGS = {
+  estimates_requests: { label: 'Requests / Estimates',     colorHex: '#2563EB', requiresTech: false, requiresBay: false, alertAfterMinutes: null,  group: 'intake'     },
+  walk_in:            { label: 'Walk-Ins',                 colorHex: '#0891B2', requiresTech: false, requiresBay: false, alertAfterMinutes: null,  group: 'intake'     },
+  scheduled:          { label: 'Scheduled',                colorHex: '#3B82F6', requiresTech: false, requiresBay: false, alertAfterMinutes: null,  group: 'intake'     },
+  dropped_off:        { label: 'Checked In',               colorHex: '#7C3AED', requiresTech: false, requiresBay: false, alertAfterMinutes: 30,    group: 'intake'     },
+  // Legacy — merged into Checked In; kept for old settings/history compatibility
+  waiting_bay:        { label: 'Assigned / Waiting Bay',   colorHex: '#9333EA', requiresTech: false, requiresBay: false, alertAfterMinutes: 30,    group: 'shopfloor'  },
+  in_progress:        { label: 'In Progress',              colorHex: '#6366F1', requiresTech: true,  requiresBay: true,  alertAfterMinutes: null,  group: 'shopfloor'  },
+  quality_check:      { label: 'Quality Check / Wrap Up',  colorHex: '#8B5CF6', requiresTech: false, requiresBay: false, alertAfterMinutes: 20,    group: 'shopfloor'  },
+  ready_for_pickup:   { label: 'Ready for Pickup',         colorHex: '#16A34A', requiresTech: false, requiresBay: false, alertAfterMinutes: 120,   group: 'completion' },
+  picked_up_closed:   { label: 'Picked Up / Closed',       colorHex: '#94A3B8', requiresTech: false, requiresBay: false, alertAfterMinutes: null,  group: 'completion' },
+  waiting_approval:   { label: 'Waiting Approval',         colorHex: '#F59E0B', requiresTech: false, requiresBay: false, alertAfterMinutes: 20,    group: 'hold'       },
+  waiting_parts:      { label: 'Waiting Parts',            colorHex: '#FB923C', requiresTech: false, requiresBay: false, alertAfterMinutes: null,  group: 'hold'       },
+};
+
+// Returns merged step settings: saved user overrides layered on top of defaults.
+function getStepSettings(stageId) {
+  const customStep = db.customWorkflowSteps().find((s) => s.key === stageId);
+  if (customStep) {
+    const colorHex = customStep.colorHex || CUSTOM_STEP_COLORS[customStep.color] || '#6366F1';
+    return {
+      stageId, label: customStep.label, colorHex, description: customStep.description || '',
+      requiresTech: customStep.requiresTech ?? false, requiresBay: customStep.requiresBay ?? false,
+      showOnBoard: customStep.isActive !== false, collapseByDefault: customStep.collapseByDefault ?? false,
+      alertAfterMinutes: customStep.alertAfterMinutes ?? null,
+      group: customStep.group || 'shopfloor', sortOrder: customStep.sortOrder ?? 50,
+      canonicalPhase: GROUP_PHASE_MAP[customStep.group] || 'IN_SERVICE',
+      isBuiltIn: false, isCustomStep: true,
+    };
+  }
+  const defaults = DEFAULT_STAGE_SETTINGS[stageId];
+  if (!defaults) return null;
+  const saved = db.workflowStepSettings()[stageId] || {};
+  return {
+    stageId,
+    label:             saved.label             ?? defaults.label,
+    colorHex:          saved.colorHex          ?? defaults.colorHex,
+    description:       saved.description       ?? '',
+    requiresTech:      saved.requiresTech      ?? defaults.requiresTech,
+    requiresBay:       saved.requiresBay       ?? defaults.requiresBay,
+    showOnBoard:       saved.showOnBoard       ?? true,
+    collapseByDefault: saved.collapseByDefault ?? false,
+    alertAfterMinutes: saved.alertAfterMinutes !== undefined ? saved.alertAfterMinutes : defaults.alertAfterMinutes,
+    group:             defaults.group,
+    sortOrder:         null,
+    canonicalPhase:    STAGE_PHASE_MAP[stageId] || 'IN_SERVICE',
+    isBuiltIn: true, isCustomStep: false,
+  };
+}
+
+// Persists step settings — routes to customWorkflowSteps or workflowStepSettings based on type.
+function saveStepSettingsForStage(stageId, patch, customExtras) {
+  const isCustom = db.customWorkflowSteps().some((s) => s.key === stageId);
+  if (isCustom) {
+    const steps = db.customWorkflowSteps();
+    const idx = steps.findIndex((s) => s.key === stageId);
+    if (idx >= 0) {
+      const colorKey = Object.entries(CUSTOM_STEP_COLORS).find(([, h]) => h.toLowerCase() === (patch.colorHex || '').toLowerCase())?.[0] || steps[idx].color;
+      steps[idx] = { ...steps[idx], label: patch.label, description: patch.description, color: colorKey, colorHex: patch.colorHex, requiresTech: patch.requiresTech, requiresBay: patch.requiresBay, isActive: patch.showOnBoard !== false, collapseByDefault: patch.collapseByDefault, alertAfterMinutes: patch.alertAfterMinutes, ...(customExtras || {}), updatedAt: new Date().toISOString() };
+      db.saveCustomWorkflowSteps(steps);
+    }
+  } else {
+    const all = db.workflowStepSettings();
+    all[stageId] = { ...(all[stageId] || {}), ...patch };
+    db.saveWorkflowStepSettings(all);
+  }
+  // Reflect label/color in STAGE_META so existing lookups see the new values immediately
+  if (STAGE_META[stageId]) STAGE_META[stageId] = { ...STAGE_META[stageId], label: patch.label, color: patch.colorHex };
+}
+
+// ---------------------------------------------------------------------------
+// SHOP CONFIG — versioned per-shop configuration (Core → Configuration →
+// Presentation). Foundation for presets/custom workspaces. Seeded once from
+// the current hard-coded stages + bays; additive only, no data migration.
+// Every workflow step maps to a canonical phase so reports/automations can
+// classify any shop's custom steps identically.
+// ---------------------------------------------------------------------------
+const SHOP_CONFIG_VERSION = 1;
+const CANONICAL_PHASES = ['INTAKE', 'SCHEDULED', 'ON_PREMISES', 'IN_SERVICE', 'DONE_PENDING', 'CLOSED', 'BLOCKED'];
+// Built-in stage → canonical phase
+const STAGE_PHASE_MAP = {
+  estimates_requests: 'INTAKE',
+  walk_in:            'ON_PREMISES',
+  scheduled:          'SCHEDULED',
+  dropped_off:        'ON_PREMISES',
+  waiting_bay:        'ON_PREMISES',   // legacy (merged into Checked In)
+  in_progress:        'IN_SERVICE',
+  quality_check:      'IN_SERVICE',
+  ready_for_pickup:   'DONE_PENDING',
+  picked_up_closed:   'CLOSED',
+  waiting_approval:   'BLOCKED',
+  waiting_parts:      'BLOCKED',
+  cancelled:          'CLOSED',
+  no_show:            'CLOSED',
+};
+// Custom-step group → canonical phase (until custom steps declare one directly)
+const GROUP_PHASE_MAP = { intake: 'ON_PREMISES', shopfloor: 'IN_SERVICE', hold: 'BLOCKED', completion: 'DONE_PENDING' };
+
+function buildDefaultShopConfig() {
+  const stepFrom = (s, i, fallbackGroup) => {
+    const d = DEFAULT_STAGE_SETTINGS[s.id] || {};
+    return {
+      id: s.id,
+      label: d.label || s.label,
+      color: d.colorHex || s.color,
+      canonicalPhase: STAGE_PHASE_MAP[s.id] || 'IN_SERVICE',
+      group: d.group || fallbackGroup || 'shopfloor',
+      requiresTech: d.requiresTech ?? false,
+      requiresBay: d.requiresBay ?? false,
+      alertAfterMinutes: d.alertAfterMinutes ?? null,
+      hidden: false,
+      sortOrder: (i + 1) * 10,
+      isDefault: true,
+    };
+  };
+  const workflowSteps = [
+    ...PRIMARY_STAGES.map((s, i) => stepFrom(s, i)),
+    ...HOLD_STAGES.map((s, i) => stepFrom(s, PRIMARY_STAGES.length + i, 'hold')),
+  ];
+  const bays = db.bays() || [];
+  const locations = [
+    ...bays.map((b, i) => ({ id: b.id, name: b.name, type: 'bay', capacity: 1, active: true, sortOrder: (i + 1) * 10 })),
+    // Virtual locations — ids match the existing QA_LOCATIONS keys for compatibility
+    { id: 'loc_outside',  name: 'Outside / Parking', type: 'zone',    capacity: null, active: true, sortOrder: 90 },
+    { id: 'loc_waiting',  name: 'Waiting Area',      type: 'zone',    capacity: null, active: true, sortOrder: 91 },
+    { id: 'loc_roadtest', name: 'Road Test',         type: 'virtual', capacity: null, active: true, sortOrder: 92 },
+    { id: 'loc_detail',   name: 'Detail Area',       type: 'zone',    capacity: null, active: true, sortOrder: 93 },
+  ];
+  return { version: SHOP_CONFIG_VERSION, workflowSteps, locations, boardViews: [], warningRules: [], presets: {} };
+}
+
+// Seed on first load; bump-and-migrate hook for future versions. Never rewrites
+// job/customer data — config only.
+function ensureShopConfig() {
+  let cfg = db.shopConfig();
+  if (!cfg || typeof cfg.version !== 'number' || !Array.isArray(cfg.workflowSteps)) {
+    cfg = buildDefaultShopConfig();
+    db.saveShopConfig(cfg);
+  } else if (cfg.version < SHOP_CONFIG_VERSION) {
+    // future migrations go here, one version step at a time
+    cfg.version = SHOP_CONFIG_VERSION;
+    db.saveShopConfig(cfg);
+  }
+  return cfg;
+}
+function getShopConfig() { return db.shopConfig() || ensureShopConfig(); }
+
+// Active locations, sorted — the single source for bay/location pickers.
+// Falls back to raw bays + virtual locations if config is somehow absent.
+function getLocations() {
+  const cfg = getShopConfig();
+  const locs = (cfg.locations || []).filter((l) => l.active !== false)
+    .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+  if (locs.length) return locs;
+  return [
+    ...(db.bays() || []).map((b) => ({ id: b.id, name: b.name, type: 'bay' })),
+    ...Object.entries(QA_LOCATIONS).map(([id, name]) => ({ id, name, type: 'zone' })),
+  ];
+}
+
+// Canonical phase for any stage id (built-in, legacy, or custom step)
+function canonicalPhaseFor(stageId) {
+  const step = (getShopConfig().workflowSteps || []).find((s) => s.id === stageId);
+  if (step?.canonicalPhase) return step.canonicalPhase;
+  if (STAGE_PHASE_MAP[stageId]) return STAGE_PHASE_MAP[stageId];
+  const cs = db.customWorkflowSteps().find((s) => s.key === stageId);
+  return GROUP_PHASE_MAP[cs?.group] || 'IN_SERVICE';
+}
+const getCanonicalPhaseForStep = canonicalPhaseFor;
+
+// Reset config only — never touches jobs/customers/history
+function resetShopConfigToDefault() {
+  const cfg = buildDefaultShopConfig();
+  db.saveShopConfig(cfg);
+  return cfg;
+}
+
+// Workflow-step accessors — config-first with hard fallback to built defaults,
+// so an empty/corrupt config can never blank the board.
+function getWorkflowSteps() {
+  const steps = getShopConfig()?.workflowSteps;
+  if (!Array.isArray(steps) || !steps.length) return buildDefaultShopConfig().workflowSteps;
+  return [...steps].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+}
+function getVisibleWorkflowSteps() {
+  return getWorkflowSteps().filter((s) => s.hidden !== true);
+}
+function getStepById(stepId) {
+  return getWorkflowSteps().find((s) => s.id === stepId) || null;
+}
+function getLocationById(locationId) {
+  if (!locationId) return null;
+  return getLocations().find((l) => l.id === locationId)
+    || (getShopConfig()?.locations || []).find((l) => l.id === locationId) // inactive locations still resolvable
+    || null;
+}
+
 function getLaneMetrics(stageId, appts, now = new Date()) {
   const jobs = appts.map((a) => a._job);
   const ages = jobs.map(getStageAge).filter((a) => a !== null);
@@ -509,7 +926,8 @@ function getLaneMetrics(stageId, appts, now = new Date()) {
   const unassignedTechs = jobs.filter((j) => !(ensureAssignmentFields(j).assignedTechIds?.length > 0)).length;
   const unassignedBay   = jobs.filter((j) => !j.bayId).length;
 
-  const threshold = STAGE_AGING_THRESHOLD[stageId] ?? null;
+  const stepSt = getStepSettings(stageId);
+  const threshold = stepSt?.alertAfterMinutes !== undefined ? stepSt.alertAfterMinutes : (STAGE_AGING_THRESHOLD[stageId] ?? null);
   const agingCount = threshold !== null
     ? jobs.filter((j) => { const a = getStageAge(j); return a !== null && a > threshold; }).length
     : tc.behind + tc.overdue;
@@ -544,12 +962,9 @@ function getBayMetrics(bayId, allAppts) {
 function laneMetricStripHtml(stageId, metrics, view) {
   if (!metrics.count) return '';
   const m = metrics;
-  if (view === 'overview') {
-    const parts = [];
-    if (m.attentionCount > 0) parts.push(`<span style="color:var(--amber)">${m.attentionCount} need attention</span>`);
-    if (m.oldestAge !== null) parts.push(`oldest ${formatMetricDuration(m.oldestAge)}`);
-    return parts.join(' · ');
-  }
+  // Overview (the default board view) shows no lane strip — warnings live on the
+  // cards themselves. Lane-level metrics appear only in explicit metric views.
+  if (view === 'overview') return '';
   if (view === 'money') {
     const parts = [`<span style="font-weight:600">${formatMoney(m.totalValue)}</span>`];
     if (m.approvedValue > 0 && m.waitingApprovalValue > 0) parts.push(`${formatMoney(m.approvedValue)} approved`);
@@ -591,6 +1006,31 @@ function laneMetricStripHtml(stageId, metrics, view) {
 
 // ── Toggle row HTML ───────────────────────────────────────────────────────────
 const METRIC_VIEW_LABELS = { overview: 'Overview', money: 'Money', time: 'Time', capacity: 'Capacity', techs: 'Techs', bottlenecks: 'Bottlenecks' };
+function boardTabBarHtml(allApptsToday, pendingForDay, bays, dynStageSets = {}) {
+  const intakeIds    = dynStageSets.intake    || INTAKE_STAGE_IDS;
+  const shopfloorIds = dynStageSets.shopfloor || SHOPFLOOR_STAGE_IDS;
+  const readyIds     = dynStageSets.ready     || READY_STAGE_IDS;
+  const allCnt        = allApptsToday.length + pendingForDay.length;
+  const intakeCnt     = allApptsToday.filter((a) => intakeIds.has(a.workflowStage)).length + pendingForDay.length;
+  const shopfloorCnt  = allApptsToday.filter((a) => shopfloorIds.has(a.workflowStage)).length;
+  const readyCnt      = allApptsToday.filter((a) => readyIds.has(a.workflowStage)).length;
+  const unassignedCnt = allApptsToday.filter((a) => DISPATCH_STAGE_IDS.has(a.workflowStage) && (!a.bayId || !a.techId)).length;
+  const badge = (n) => n > 0 ? ` <span class="sb-tab-badge">${n}</span>` : '';
+  const tab   = (id, label, cnt) =>
+    `<button class="sb-tab${boardTab === id ? ' active' : ''}" data-board-tab="${id}">${label}${badge(cnt)}</button>`;
+  const bayTabs = bays.length
+    ? `<span class="sb-tab-divider"></span>`
+      + bays.map((bay) => tab(`bay_${bay.id}`, bay.name, allApptsToday.filter((a) => a.bayId === bay.id).length)).join('')
+      + `<span class="sb-tab-divider"></span>`
+    : '';
+  return tab('all', 'All', allCnt)
+    + tab('intake', 'Intake / Check-In', intakeCnt)
+    + tab('shopfloor', 'Shop Floor', shopfloorCnt)
+    + bayTabs
+    + tab('unassigned', 'Unassigned', unassignedCnt)
+    + tab('ready', 'Ready', readyCnt);
+}
+
 function boardMetricToggleHtml() {
   return `<div id="board-metric-toggles" class="sb-metric-tabs">
     ${Object.entries(METRIC_VIEW_LABELS).map(([v, label]) => {
@@ -662,6 +1102,7 @@ function bayMetricSectionHtml(allAppts, view) {
 // ---------------------------------------------------------------------------
 export function renderAppointments() {
   try {
+    ensureShopConfig(); // seed/upgrade the versioned shop config before anything renders
     renderNav('#icon-rail', 'appointments.html');
     document.getElementById('avatar').textContent = (db.settings().owner || '?').charAt(0).toUpperCase();
 
@@ -679,11 +1120,27 @@ export function renderAppointments() {
 
     document.getElementById('cal-date').value = selectedDate;
     document.getElementById('cal-date').addEventListener('change', (e) => { selectedDate = e.target.value; updateDateLabel(); renderSchedule(); });
-    document.getElementById('filter-status').addEventListener('change', (e) => { filterStatus = e.target.value; renderSchedule(); });
+    const updateFilterBadge = () => {
+      const n = [filterStatus, filterTech, filterBay, filterType].filter(Boolean).length;
+      const badge = document.getElementById('sb-filter-count');
+      if (badge) { badge.hidden = n === 0; badge.textContent = n; }
+    };
+    document.getElementById('filter-status').addEventListener('change', (e) => { filterStatus = e.target.value; updateFilterBadge(); renderSchedule(); });
     document.getElementById('filter-search').addEventListener('input', (e) => { filterSearch = e.target.value; renderSchedule(); });
-    document.getElementById('filter-tech').addEventListener('change', (e) => { filterTech = e.target.value; renderSchedule(); });
-    document.getElementById('filter-bay').addEventListener('change', (e) => { filterBay = e.target.value; renderSchedule(); });
-    document.getElementById('filter-type').addEventListener('change', (e) => { filterType = e.target.value; renderSchedule(); });
+    document.getElementById('filter-tech').addEventListener('change', (e) => { filterTech = e.target.value; updateFilterBadge(); renderSchedule(); });
+    document.getElementById('filter-bay').addEventListener('change', (e) => { filterBay = e.target.value; updateFilterBadge(); renderSchedule(); });
+    document.getElementById('filter-type').addEventListener('change', (e) => { filterType = e.target.value; updateFilterBadge(); renderSchedule(); });
+    document.getElementById('sb-filters-clear')?.addEventListener('click', () => {
+      filterStatus = filterTech = filterBay = filterType = '';
+      ['filter-status', 'filter-tech', 'filter-bay', 'filter-type'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+      updateFilterBadge(); renderSchedule();
+    });
+    // Click-away closes any open Filters/View dropdown (re-rendered nodes are
+    // detached, so closest() on the original target still matches — no false close)
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('details.sb-dd')) return;
+      document.querySelectorAll('details.sb-dd[open]').forEach((d) => { d.open = false; });
+    });
 
     const techSelect = document.getElementById('filter-tech');
     db.employees().filter((e) => e.isTech).forEach((t) => techSelect.insertAdjacentHTML('beforeend', `<option value="${t.id}">${t.firstName} ${t.lastName}</option>`));
@@ -712,15 +1169,17 @@ export function renderAppointments() {
     });
     document.getElementById('daymode-workflow').classList.add('active');
 
-    // Populate walk-in button in header slot (once at init, permission-gated)
+    // Populate walk-in + custom card buttons (once at init, permission-gated)
     if (can('create')) {
       const slot = document.getElementById('walkin-slot');
-      if (slot) slot.innerHTML = `<button id="btn-new-walkin">+ Walk-In</button>`;
+      if (slot) slot.innerHTML = `<button id="btn-custom-card">+ Custom Card</button><button id="btn-new-walkin">+ Walk-In</button>`;
       document.getElementById('btn-new-walkin')?.addEventListener('click', openWalkInModal);
+      document.getElementById('btn-custom-card')?.addEventListener('click', openCustomCardModal);
     }
 
     loadBoardMetricView();
     loadBoardCardView();
+    loadBoardTab();
     loadCollapsedCols();
     renderSummary();
     renderPending();
@@ -768,7 +1227,8 @@ function updateDateLabel() {
     const end = new Date(start); end.setDate(start.getDate() + 6);
     label = `${util.fmtDate(start.toISOString().slice(0, 10))} – ${util.fmtDate(end.toISOString().slice(0, 10))}`;
   } else label = d.toLocaleString('default', { month: 'long', year: 'numeric' });
-  document.getElementById('date-label').textContent = label;
+  const dateEl = document.getElementById('date-label');
+  if (dateEl) dateEl.textContent = label;
 }
 
 // ---------------------------------------------------------------------------
@@ -777,20 +1237,21 @@ function updateDateLabel() {
 function renderSummary() {
   const today = new Date().toISOString().slice(0, 10);
   const todays = visibleJobs().filter((j) => j.scheduledDate === today);
-  const cards = [
-    { label: 'Today', value: todays.length, sub: 'Appointments today' },
-    { label: 'Pending Requests', value: db.pendingBookings().length, sub: 'Awaiting confirm' },
-    { label: 'Confirmed', value: todays.filter((j) => j.status === 'scheduled').length, sub: 'Not checked in yet' },
-    { label: 'Checked In', value: todays.filter((j) => j.status === 'waiting').length, sub: 'Waiting on a bay' },
-    { label: 'In Progress', value: todays.filter((j) => j.status === 'in_progress').length, sub: 'Active jobs' },
-    { label: 'No-Show / Cancelled', value: todays.filter((j) => j.status === 'cancelled').length, sub: 'Today' },
-  ];
-  document.getElementById('summary-cards').innerHTML = cards.map((c) => `
-    <div class="card" style="padding:var(--s4)">
-      <div style="font-size:var(--t-13);color:var(--ink-3);margin-bottom:6px">${c.label}</div>
-      <div style="font-size:var(--t-2xl);font-weight:800;color:var(--ink)">${c.value}</div>
-      <div style="font-size:var(--t-13);color:var(--ink-3)">${c.sub}</div>
-    </div>`).join('');
+  const pending = db.pendingBookings().length;
+  const confirmed = todays.filter((j) => j.status === 'scheduled').length;
+  const checkedIn = todays.filter((j) => j.status === 'waiting').length;
+  const inProgress = todays.filter((j) => j.status === 'in_progress').length;
+  const cancelled = todays.filter((j) => j.status === 'cancelled').length;
+  const chips = [
+    `<span class="sb-sum-chip${todays.length > 0 ? ' is-green' : ''}">Today <strong>${todays.length}</strong></span>`,
+    `<span class="sb-sum-sep"></span>`,
+    `<span class="sb-sum-chip${pending > 0 ? ' is-amber' : ''}">Pending <strong>${pending}</strong></span>`,
+    `<span class="sb-sum-chip">Confirmed <strong>${confirmed}</strong></span>`,
+    `<span class="sb-sum-chip">Checked in <strong>${checkedIn}</strong></span>`,
+    `<span class="sb-sum-chip">In progress <strong>${inProgress}</strong></span>`,
+    cancelled > 0 ? `<span class="sb-sum-chip is-red">Cancelled <strong>${cancelled}</strong></span>` : '',
+  ].filter(Boolean).join('');
+  document.getElementById('summary-cards').innerHTML = `<div class="sb-sum-strip">${chips}</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -971,6 +1432,122 @@ function openWalkInModal() {
 }
 
 // ---------------------------------------------------------------------------
+// Custom Card modal — create a new custom board card
+// ---------------------------------------------------------------------------
+function openCustomCardModal(prefillStage) {
+  const employees = db.employees().filter((e) =>
+    ['owner', 'general_manager', 'service_manager', 'advisor', 'front_desk', 'technician'].includes(e.role)
+  );
+  const allBoardStages = [...WORKFLOW_STAGES, ...getActiveCustomSteps()];
+  const stageOptions = allBoardStages.map((s) =>
+    `<option value="${s.id}"${(prefillStage || 'estimates_requests') === s.id ? ' selected' : ''}>${s.label}</option>`
+  ).join('');
+
+  document.getElementById('drawer-title').textContent = '+ Custom Card';
+  document.getElementById('drawer-body').innerHTML = `
+    <div class="stack">
+      <div class="field">
+        <label class="label">Title <span style="color:var(--red)">*</span></label>
+        <input class="input" id="cc-title" placeholder="e.g. Call customer about approval" autocomplete="off">
+      </div>
+      <div class="field">
+        <label class="label">Type</label>
+        <select class="select" id="cc-type">
+          ${Object.entries(CUSTOM_CARD_TYPES).map(([v, m]) =>
+            `<option value="${v}">${m.icon} ${m.label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field">
+        <label class="label">Workflow stage</label>
+        <select class="select" id="cc-stage">${stageOptions}</select>
+      </div>
+      <div class="field">
+        <label class="label">Priority</label>
+        <select class="select" id="cc-priority">
+          <option value="low">Low</option>
+          <option value="normal" selected>Normal</option>
+          <option value="high">High</option>
+          <option value="urgent">Urgent</option>
+        </select>
+      </div>
+      <div class="field">
+        <label class="label">Description / notes</label>
+        <textarea class="input" id="cc-desc" rows="2" placeholder="Optional details…" style="resize:vertical"></textarea>
+      </div>
+      ${employees.length ? `
+      <div class="field">
+        <label class="label">Assigned to (optional)</label>
+        <select class="select" id="cc-assigned">
+          <option value="">Unassigned</option>
+          ${employees.map((e) => `<option value="${e.id}">${e.firstName} ${e.lastName}</option>`).join('')}
+        </select>
+      </div>` : ''}
+      <div class="row" style="gap:var(--s3)">
+        <div class="field" style="flex:1">
+          <label class="label">Customer name (optional)</label>
+          <input class="input" id="cc-customer" placeholder="Jane Smith" autocomplete="off">
+        </div>
+        <div class="field" style="flex:1">
+          <label class="label">Vehicle (optional)</label>
+          <input class="input" id="cc-vehicle" placeholder="2019 Toyota Camry" autocomplete="off">
+        </div>
+      </div>
+      <div class="row" style="gap:var(--s3)">
+        <div class="field" style="flex:1">
+          <label class="label">Board date</label>
+          <input class="input" id="cc-date" type="date" value="${selectedDate}">
+        </div>
+        <div class="field" style="flex:1">
+          <label class="label">Due time (optional)</label>
+          <input class="input" id="cc-due-time" type="time">
+        </div>
+      </div>
+      <div class="row wrapf" style="gap:var(--s2)">
+        <button class="btn btn-primary" id="cc-save">Create Card</button>
+        <button class="btn btn-secondary" id="cc-cancel">Cancel</button>
+      </div>
+    </div>`;
+  document.getElementById('appt-drawer-overlay').classList.add('open');
+
+  document.getElementById('cc-cancel').addEventListener('click', closeDrawer);
+  document.getElementById('cc-save').addEventListener('click', () => {
+    const title = (document.getElementById('cc-title')?.value || '').trim();
+    if (!title) { toast('Title is required.', 'error'); return; }
+    const now = new Date().toISOString();
+    const dueTime = document.getElementById('cc-due-time')?.value || null;
+    const boardDate = document.getElementById('cc-date')?.value || selectedDate;
+    const assignedId = document.getElementById('cc-assigned')?.value || null;
+    const assignedEmp = assignedId ? db.employeeById(assignedId) : null;
+    const newCard = {
+      id: nextCustomCardId(),
+      isCustomCard: true,
+      type: document.getElementById('cc-type')?.value || 'internal_task',
+      title,
+      description: (document.getElementById('cc-desc')?.value || '').trim() || null,
+      workflowStage: document.getElementById('cc-stage')?.value || 'estimates_requests',
+      priority: document.getElementById('cc-priority')?.value || 'normal',
+      assignedTo: assignedId,
+      assignedName: assignedEmp ? `${assignedEmp.firstName} ${assignedEmp.lastName}` : null,
+      customerName: (document.getElementById('cc-customer')?.value || '').trim() || null,
+      vehicleText: (document.getElementById('cc-vehicle')?.value || '').trim() || null,
+      boardDate,
+      dueAt: dueTime ? `${boardDate}T${dueTime}:00` : null,
+      createdAt: now,
+      updatedAt: now,
+      currentStageEnteredAt: now,
+      stageHistory: [{ stage: document.getElementById('cc-stage')?.value || 'estimates_requests', enteredAt: now, via: 'created' }],
+      notes: [],
+    };
+    const cards = db.customBoardCards();
+    cards.push(newCard);
+    db.saveCustomBoardCards(cards);
+    toast(`Custom card created — "${title}"`, 'success');
+    closeDrawer();
+    renderDayWorkflowView();
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Filtering shared by every view
 // ---------------------------------------------------------------------------
 function filteredAppointments(jobs) {
@@ -998,7 +1575,10 @@ function renderSchedule() {
 // in modules/dashboard.js's Live Jobs kanban — same real transitions, just
 // more columns).
 // ---------------------------------------------------------------------------
+let viewMenuOpen = false; // View-options dropdown stays open across board re-renders
+
 function renderDayWorkflowView() {
+  document.querySelector('.sched2-layout')?.classList.add('wfb-full');
   const calBody = document.getElementById('cal-body');
   const finalStatuses = new Set(['picked_up_closed', 'cancelled', 'invoiced', 'closed']);
   const todaysJobs = visibleJobs().filter((j) =>
@@ -1015,10 +1595,55 @@ function renderDayWorkflowView() {
   const role = currentEmployee()?.role;
   const pendingForDay = role === 'parts' ? [] : db.pendingBookings().filter((b) => b.preferredDate === selectedDate);
 
-  const stagesToShow = role === 'parts' ? HOLD_STAGES.filter((s) => s.id === 'waiting_parts') : WORKFLOW_STAGES;
+  const activeCustomSteps = getActiveCustomSteps();
+  const combinedStages    = buildCombinedStages(activeCustomSteps);
+  // Register custom step meta into STAGE_META so any direct STAGE_META[id] lookups work
+  activeCustomSteps.forEach((s) => {
+    STAGE_META[s.key] = { id: s.key, label: s.label, color: s.color, bgTint: s.bgTint, isCustomStep: true };
+  });
+  const stagesToShow = role === 'parts' ? HOLD_STAGES.filter((s) => s.id === 'waiting_parts') : combinedStages;
+  // Apply per-stage settings overrides (label, color) and filter hidden stages
+  const resolvedStagesToShow = stagesToShow.map((stage) => {
+    const ss = getStepSettings(stage.id);
+    if (!ss) return { ...stage, _settings: null };
+    return { ...stage, label: ss.label || stage.label, color: ss.colorHex || stage.color, bgTint: (ss.colorHex || stage.color) + '18', _settings: ss };
+  }).filter((stage) => stage._settings?.showOnBoard !== false);
+  const bays = db.bays();
+
+  // Dynamic tab scope sets — include custom step stage IDs in the right groups
+  const dynIntakeIds    = new Set([...INTAKE_STAGE_IDS,    ...activeCustomSteps.filter((s) => s.group === 'intake').map((s) => s.key)]);
+  const dynShopfloorIds = new Set([...SHOPFLOOR_STAGE_IDS, ...activeCustomSteps.filter((s) => ['shopfloor', 'hold'].includes(s.group)).map((s) => s.key)]);
+  const dynReadyIds     = new Set([...READY_STAGE_IDS,     ...activeCustomSteps.filter((s) => s.group === 'completion').map((s) => s.key)]);
+
+  // ── Board tab scoping: filter visible columns and/or cards ─────────────────
+  let tabStages  = resolvedStagesToShow;
+  let tabAppts   = appts;
+  let tabPending = pendingForDay;
+  if (boardTab === 'intake') {
+    tabStages  = resolvedStagesToShow.filter((s) => dynIntakeIds.has(s.id));
+  } else if (boardTab === 'shopfloor') {
+    tabStages  = resolvedStagesToShow.filter((s) => dynShopfloorIds.has(s.id));
+    tabPending = [];
+  } else if (boardTab === 'ready') {
+    tabStages  = resolvedStagesToShow.filter((s) => dynReadyIds.has(s.id));
+    tabPending = [];
+  } else if (boardTab === 'unassigned') {
+    tabStages  = resolvedStagesToShow.filter((s) => DISPATCH_STAGE_IDS.has(s.id));
+    tabAppts   = appts.filter((a) => !a.bayId || !a.techId);
+    tabPending = [];
+  } else if (boardTab.startsWith('bay_')) {
+    const bayId = boardTab.slice(4);
+    tabAppts    = appts.filter((a) => String(a.bayId) === String(bayId));
+    tabPending  = [];
+  }
 
   const byStage = {};
-  stagesToShow.forEach((s) => { byStage[s.id] = appts.filter((a) => a.workflowStage === s.id); });
+  tabStages.forEach((s) => { byStage[s.id] = tabAppts.filter((a) => a.workflowStage === s.id); });
+
+  // Custom board cards scoped to this date, grouped by stage
+  const customCards = customCardsForDate(selectedDate);
+  const byStageCustom = {};
+  tabStages.forEach((s) => { byStageCustom[s.id] = customCards.filter((c) => c.workflowStage === s.id); });
 
   // ── Timing summary row ───────────────────────────────────────────────────────
   const tNow = new Date();
@@ -1034,7 +1659,7 @@ function renderDayWorkflowView() {
     tCounts.watch > 0       ? `<span class="badge badge-amber">${tCounts.watch} watch</span>` : '',
     tCounts.behind > 0      ? `<span class="badge" style="background:#FEF2E2;color:#C2410C">${tCounts.behind} behind</span>` : '',
     tCounts.overdue > 0     ? `<span class="badge badge-red">${tCounts.overdue} overdue</span>` : '',
-    tCounts.late > 0        ? `<span class="badge badge-red">${tCounts.late} late check-in</span>` : '',
+    tCounts.late > 0        ? `<button class="badge badge-red" style="cursor:pointer;border:none;font:inherit" data-chip-bottlenecks title="Switch to Bottlenecks view">${tCounts.late} late check-in</button>` : '',
   ].filter(Boolean).join('');
   // ── Row 2: board tools injected into #sb-r2-tools ──────────────────────────
   const timingChips = tTotal > 0
@@ -1042,19 +1667,31 @@ function renderDayWorkflowView() {
     : '';
   const r2tools = document.getElementById('sb-r2-tools');
   if (r2tools) {
-    r2tools.innerHTML = boardMetricToggleHtml()
-      + `<span class="sb-tools-sep"></span>`
-      + boardCardViewToggleHtml()
-      + `<span class="sb-tools-sep"></span>`
-      + `<button data-col-collapse-empty class="sb-tool-btn">Collapse Empty</button>`
-      + `<button data-col-collapse-all class="sb-tool-btn">Collapse All</button>`
-      + `<button data-col-expand-all class="sb-tool-btn">Expand All</button>`
+    r2tools.innerHTML =
+      `<details class="sb-dd" id="sb-view-dd"${viewMenuOpen ? ' open' : ''}>
+        <summary class="sb-dd-btn" style="height:22px;font-size:10px">View options</summary>
+        <div class="sb-dd-panel" style="right:auto;min-width:240px">
+          <div class="sb-dd-label">Metrics</div>
+          ${boardMetricToggleHtml()}
+          <div class="sb-dd-label">Card detail</div>
+          ${boardCardViewToggleHtml()}
+          <div class="sb-dd-label">Columns</div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">
+            <button data-col-collapse-empty class="sb-tool-btn">Collapse Empty</button>
+            <button data-col-collapse-all class="sb-tool-btn">Collapse All</button>
+            <button data-col-expand-all class="sb-tool-btn">Expand All</button>
+          </div>
+        </div>
+      </details>`
+      + `<button data-add-custom-step class="sb-tool-btn" style="color:var(--accent);font-weight:700">+ Step</button>`
       + (tTotal > 0 ? `<span class="sb-tools-sep"></span>${timingChips}` : '');
   }
-  let html = bayMetricSectionHtml(allApptsToday, boardMetricView);
-  html += `<div class="wfb-board">`;
+  const dynStageSets = { intake: dynIntakeIds, shopfloor: dynShopfloorIds, ready: dynReadyIds };
+  const tabsEl = document.getElementById('sb-board-tabs');
+  if (tabsEl) tabsEl.innerHTML = boardTabBarHtml(allApptsToday, pendingForDay, bays, dynStageSets);
+  let html = `<div class="wfb-board">`;
   let holdDividerDone = false;
-  stagesToShow.forEach((stage) => {
+  tabStages.forEach((stage) => {
     // Insert visual divider before the first hold lane
     if (stage.isHold && !holdDividerDone) {
       holdDividerDone = true;
@@ -1066,36 +1703,49 @@ function renderDayWorkflowView() {
         </div>`;
     }
     const items = byStage[stage.id] || [];
-    const extraPending = stage.id === 'estimates_requests' ? pendingForDay : [];
-    const total = items.length + extraPending.length;
+    const extraPending = stage.id === 'estimates_requests' ? tabPending : [];
+    const extraCustom  = byStageCustom[stage.id] || [];
+    const total = items.length + extraPending.length + extraCustom.length;
     const lm = getLaneMetrics(stage.id, items, tNow);
     const metricLine = laneMetricStripHtml(stage.id, lm, boardMetricView);
-    const hdrStyle = `background:${stage.color}`;
-    if (collapsedCols[stage.id]) {
+    const hdrStyle = `border-top:3px solid ${stage.color}`;
+    const isCollapsed = collapsedCols[stage.id] !== undefined ? collapsedCols[stage.id] : (stage._settings?.collapseByDefault || false);
+    const gearSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>`;
+    const gearBtn = (id) => `<button data-col-gear="${id}" title="Step settings — ${stage.label}" style="background:none;border:none;cursor:pointer;padding:2px 3px;color:var(--ink-4);border-radius:3px;line-height:0;flex-shrink:0">${gearSvg}</button>`;
+    if (isCollapsed) {
       html += `
-        <div class="wfb-col is-collapsed" data-stage="${stage.id}" title="${stage.label} · ${total} car${total !== 1 ? 's' : ''}">
+        <div class="wfb-col is-collapsed" data-stage="${stage.id}" title="${stage.label} · ${total} card${total !== 1 ? 's' : ''}">
           <div class="wfb-col-header" style="${hdrStyle}">
             <button class="wfb-col-toggle" data-col-toggle="${stage.id}" title="Expand ${stage.label}">＋</button>
+            ${gearBtn(stage.id)}
           </div>
           <div class="wfb-col-collapsed-body">
             <div class="wfb-col-collapsed-label">${stage.label}</div>
             <span class="wfb-col-collapsed-count">${total}</span>
-            ${lm.attentionCount > 0 ? `<span class="wfb-col-collapsed-count" style="background:#FEF3C7;color:#92400E" title="${lm.attentionCount} need attention">!</span>` : ''}
+            ${boardMetricView !== 'overview' && lm.attentionCount > 0 ? `<span class="wfb-col-collapsed-count" style="background:#FEF3C7;color:#92400E" title="${lm.attentionCount} need attention">!</span>` : ''}
           </div>
         </div>`;
     } else {
+      const isEmpty = !items.length && !extraPending.length && !extraCustom.length;
       html += `
         <div class="wfb-col" data-stage="${stage.id}">
           <div class="wfb-col-header" style="${hdrStyle}">
             <span class="wfb-col-header-title">${stage.label}</span>
-            ${stage.isHold ? `<span style="font-size:9px;background:rgba(255,255,255,.2);border-radius:8px;padding:1px 5px;color:#fff;font-weight:600;flex-shrink:0">hold</span>` : ''}
-            <span class="wfb-col-header-count">${total}</span>
+            ${stage.isHold ? `<span style="font-size:9px;background:#FEF3C7;border-radius:8px;padding:1px 5px;color:#92400E;font-weight:600;flex-shrink:0">hold</span>` : ''}
+            <span class="wfb-col-header-count" style="background:${stage.bgTint};color:${stage.color}">${total}</span>
+            ${gearBtn(stage.id)}
             <button class="wfb-col-toggle wfb-col-header-btn" data-col-toggle="${stage.id}" title="Collapse ${stage.label}">–</button>
           </div>
+          ${metricLine ? `<div class="wfb-col-metric">${metricLine}</div>` : ''}
           <div class="wfb-col-body">
-            ${metricLine ? `<div style="font-size:10px;color:var(--ink-3);padding:3px 0 6px;border-bottom:1px solid #DDE3EC;margin-bottom:6px;line-height:1.4">${metricLine}</div>` : ''}
             ${extraPending.map(pendingCardHtml).join('')}
-            ${items.length ? items.map((a) => workflowCardHtml(a, allApptsToday)).join('') : (!extraPending.length ? `<div class="wfb-col-empty">Empty</div>` : '')}
+            ${items.map((a) => workflowCardHtml(a, allApptsToday)).join('')}
+            ${extraCustom.map(customCardHtml).join('')}
+            ${isEmpty ? `<div class="wfb-col-empty">
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M8 6V4M16 6V4"/></svg>
+  <div class="wfb-empty-label">Drag a card here</div>
+  <div class="wfb-empty-sub">No jobs in this stage</div>
+</div>` : ''}
           </div>
         </div>`;
     }
@@ -1103,9 +1753,17 @@ function renderDayWorkflowView() {
   html += `</div>`;
   calBody.innerHTML = html;
 
+  // Wire board tab clicks (tabs now live in #sb-board-tabs, not calBody)
+  if (tabsEl) {
+    tabsEl.querySelectorAll('[data-board-tab]').forEach((btn) => {
+      btn.addEventListener('click', () => { saveBoardTab(btn.dataset.boardTab); renderDayWorkflowView(); });
+    });
+  }
+
   // Wire metric/card toggles and collapse buttons (in #sb-r2-tools)
   const toolsEl = document.getElementById('sb-r2-tools');
   if (toolsEl) {
+    toolsEl.querySelector('#sb-view-dd')?.addEventListener('toggle', (e) => { viewMenuOpen = e.target.open; });
     toolsEl.querySelectorAll('[data-metric-view]').forEach((btn) => {
       btn.addEventListener('click', () => { saveBoardMetricView(btn.dataset.metricView); renderDayWorkflowView(); });
     });
@@ -1113,29 +1771,37 @@ function renderDayWorkflowView() {
       btn.addEventListener('click', () => { saveBoardCardView(btn.dataset.cardView); renderDayWorkflowView(); });
     });
     toolsEl.querySelector('[data-col-collapse-empty]')?.addEventListener('click', () => {
-      stagesToShow.forEach((s) => {
+      tabStages.forEach((s) => {
         const stageItems = byStage[s.id] || [];
-        const stagePending = s.id === 'estimates_requests' ? pendingForDay : [];
+        const stagePending = s.id === 'estimates_requests' ? tabPending : [];
         if (stageItems.length === 0 && stagePending.length === 0) collapsedCols[s.id] = true;
       });
       saveCollapsedCols(); renderDayWorkflowView();
     });
     toolsEl.querySelector('[data-col-collapse-all]')?.addEventListener('click', () => {
-      WORKFLOW_STAGES.forEach((s) => { collapsedCols[s.id] = true; });
+      combinedStages.forEach((s) => { collapsedCols[s.id] = true; });
       saveCollapsedCols(); renderDayWorkflowView();
     });
     toolsEl.querySelector('[data-col-expand-all]')?.addEventListener('click', () => {
       collapsedCols = {};
       saveCollapsedCols(); renderDayWorkflowView();
     });
+    toolsEl.querySelector('[data-chip-bottlenecks]')?.addEventListener('click', () => {
+      saveBoardMetricView('bottlenecks'); renderDayWorkflowView();
+    });
+    toolsEl.querySelector('[data-add-custom-step]')?.addEventListener('click', () => openCustomStepModal());
   }
   // Wire column collapse toggles (still in calBody)
   calBody.querySelectorAll('[data-col-toggle]').forEach((btn) => {
     btn.addEventListener('click', (e) => { e.stopPropagation(); toggleColCollapse(btn.dataset.colToggle); });
   });
   document.querySelectorAll('[data-col-menu]').forEach((btn) => btn.addEventListener('click', (e) => { e.stopPropagation(); toast('Column actions — placeholder, coming soon.'); }));
+  calBody.querySelectorAll('[data-col-gear]').forEach((btn) => {
+    btn.addEventListener('click', (e) => { e.stopPropagation(); openStepSettingsDrawer(btn.dataset.colGear); });
+  });
   bindApptCards(calBody);
   bindPendingCards(calBody);
+  bindCustomCards(calBody);
   if (canDrag()) wireDragDrop(calBody);
   else calBody.querySelectorAll('.wfb-card').forEach((c) => { c.removeAttribute('draggable'); });
 }
@@ -1313,7 +1979,7 @@ function formatRelative(isoStr) {
 }
 
 function workflowCardHtml(a, allApptsSameDay) {
-  const meta = STAGE_META[a.workflowStage] || STAGE_META.estimates_requests;
+  const meta = getEffectiveStageMeta(a.workflowStage);
   const svc = a.services[0] ? a.services[0] + (a.services.length > 1 ? ` +${a.services.length - 1}` : '') : 'No service listed';
   const job = a._job;
   const quote = job.quoteId ? db.quoteById(job.quoteId) : null;
@@ -1377,9 +2043,6 @@ function workflowCardHtml(a, allApptsSameDay) {
   const lastMoveRelative = lastMove?.enteredAt ? formatRelative(lastMove.enteredAt) : '';
   const lastMoveLine = lastMove ? `Moved to ${lastMove.label || lastMove.stage}${lastMoveRelative ? ` · ${lastMoveRelative}` : ''}` : '';
 
-  // Collapsed warning pills (critical only)
-  const warnPills = warnings.map((w) => `<span class="badge badge-red" style="font-size:9px;padding:1px 5px">${w}</span>`).join('');
-
   // Compact tech + bay line for collapsed view
   const techBayLine = `${techDisplayLabel(a)}${a.bayName ? ` · ${a.bayName}` : ' · No bay'}`;
 
@@ -1403,18 +2066,31 @@ function workflowCardHtml(a, allApptsSameDay) {
     ? `${stageApprox ? '~' : ''}${formatDuration(Math.round(stageMins))}`
     : (schedTime || null);
   const timerCls = tStatus === 'watch' ? 'is-watch' : tStatus === 'behind' ? 'is-behind' : tStatus === 'overdue' ? 'is-overdue' : '';
-  const hasStats = noteCount > 0 || photoCount > 0 || rwRecord || warnings.length > 0;
 
+  // Simplified footer: who, where, one worst warning, timer. Notes/photos/rewards
+  // detail lives in the expanded view and drawer.
   const cardFooterHtml = `
     <div class="wfb-card-footer">
-      ${techAvatarHtml}
-      ${hasStats ? `<span class="wfb-ft-divider"></span>` : ''}
-      ${noteCount > 0 ? `<span class="wfb-ft-stat" title="${noteCount} note${noteCount !== 1 ? 's' : ''}"><span class="wfb-ft-stat-icon">💬</span>${noteCount}</span>` : ''}
-      ${photoCount > 0 ? `<span class="wfb-ft-stat" title="${photoCount} photo${photoCount !== 1 ? 's' : ''}"><span class="wfb-ft-stat-icon">📷</span>${photoCount}</span>` : ''}
-      ${rwRecord ? `<span class="wfb-ft-crown" title="Rewards ${rwTierLabel} · ${rwRecord.pointsBalance || 0} pts">👑</span>` : ''}
-      ${warnings.length ? `<span class="wfb-ft-stat" style="color:#B91C1C" title="${warnings[0]}">⚠</span>` : ''}
+      <span data-qa-open="tech" title="Assign technician" style="cursor:pointer;display:inline-flex;align-items:center">${techAvatarHtml}</span>
+      <span data-qa-open="bay" title="Assign bay" style="cursor:pointer;font-size:10px;color:var(--ink-4);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.bayName || 'No bay'}</span>
+      ${warnings.length ? `<span class="wfb-ft-stat" style="color:#B91C1C" title="${warnings.join(' · ')}">⚠${warnings.length > 1 ? warnings.length : ''}</span>` : ''}
       ${footerDuration ? `<span class="wfb-ft-timer${timerCls ? ` ${timerCls}` : ''}">${footerDuration}</span>` : ''}
     </div>`;
+
+  // Assignment chips — informational state for Checked In cards (merged waiting_bay).
+  // "Ready to start" = tech + bay both assigned; otherwise show what's missing/set.
+  let assignChips = '';
+  if (a.workflowStage === 'dropped_off') {
+    const hasTech = a.assignedTechIds?.length > 0;
+    const hasBay  = !!a.bayId;
+    const chipStyle = (bg, fg) => `font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;background:${bg};color:${fg}`;
+    assignChips = hasTech && hasBay
+      ? `<div style="display:flex;gap:3px;margin-top:4px"><span style="${chipStyle('#DCFCE7', '#166534')}">Ready to start</span></div>`
+      : `<div style="display:flex;gap:3px;margin-top:4px;flex-wrap:wrap">
+          <span style="${hasTech ? chipStyle('#EFF6FF', '#1D4ED8') : chipStyle('#F1F5F9', '#94A3B8')}">${hasTech ? 'Tech ✓' : 'No tech'}</span>
+          <span style="${hasBay ? chipStyle('#EFF6FF', '#1D4ED8') : chipStyle('#F1F5F9', '#94A3B8')}">${hasBay ? 'Bay ✓' : 'No bay'}</span>
+        </div>`;
+  }
 
   const isExpanded = boardCardView === 'detailed' || expandedCards.has(a.id);
   const arrowLabel = isExpanded ? 'Collapse card details' : 'Expand card details';
@@ -1436,8 +2112,8 @@ function workflowCardHtml(a, allApptsSameDay) {
         <div style="display:flex;align-items:center;flex-wrap:wrap;gap:3px">
           <span style="font-size:var(--t-xs);color:var(--ink-3);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${svc}</span>
           ${tbadge ? `<span class="badge ${tbadge.cls}" style="font-size:9px;padding:1px 4px;flex-shrink:0;${tbadge.style || ''}">${tbadge.label}</span>` : ''}
-          ${warnPills}
         </div>
+        ${assignChips}
       </div>
 
       <!-- ── Expanded details ───────────────────────────────────────────────── -->
@@ -1445,7 +2121,10 @@ function workflowCardHtml(a, allApptsSameDay) {
         <div style="padding:6px 10px 4px;border-top:1px solid #F0F3F8">
           <div class="row between" style="margin-bottom:3px">
             <span style="font-size:var(--t-xs);color:var(--ink-3)">${techDisplayLabel(a)} · ${a.bayName || 'No bay'}</span>
-            ${a.visitType ? `<span class="badge badge-gray" style="font-size:9px">${util.visitTypeLabel(a.visitType)}</span>` : ''}
+            <span style="display:inline-flex;align-items:center;gap:3px">
+              ${a.visitType ? `<span class="badge badge-gray" style="font-size:9px">${util.visitTypeLabel(a.visitType)}</span>` : ''}
+              ${crownChip}
+            </span>
           </div>
           <div class="row between" style="margin-bottom:3px">
             <span class="tnum" style="font-size:var(--t-xs);color:var(--ink-3)">${a.total ? util.fmtMoney(a.total) : '—'}</span>
@@ -1458,7 +2137,7 @@ function workflowCardHtml(a, allApptsSameDay) {
           ${progressBlock}
           ${latestThumb ? `<div style="margin-top:6px;display:flex;align-items:center;gap:6px"><img src="${latestThumb}" style="width:44px;height:33px;object-fit:cover;border-radius:4px;border:1px solid #E8ECF2" alt="Latest photo"><span style="font-size:var(--t-xs);color:var(--ink-3)">${photoCount} photo${photoCount !== 1 ? 's' : ''}</span></div>` : ''}
           ${lastMoveLine ? `<div style="font-size:var(--t-xs);color:var(--ink-4);margin-top:4px">↔ ${lastMoveLine}</div>` : ''}
-          ${latestNote ? `<div style="margin-top:5px;padding-top:5px;border-top:1px solid #F0F3F8;font-size:var(--t-xs)"><span style="color:var(--ink-3)">💬 ${latestNote.authorName || 'Note'}:</span> <span style="color:var(--ink-3)">${(latestNote.body || '').slice(0, 70)}${(latestNote.body || '').length > 70 ? '…' : ''}</span></div>` : ''}
+          ${latestNote ? `<div style="margin-top:5px;padding-top:5px;border-top:1px solid #F0F3F8;font-size:var(--t-xs)"><span style="color:var(--ink-3)">💬 ${latestNote.authorName || 'Note'}${noteCount > 1 ? ` (${noteCount})` : ''}:</span> <span style="color:var(--ink-3)">${(latestNote.body || '').slice(0, 70)}${(latestNote.body || '').length > 70 ? '…' : ''}</span></div>` : ''}
           ${warnings.length ? `<div class="wfb-warn" style="display:flex;justify-content:space-between;align-items:center;gap:4px;margin-top:4px"><span>⚠ ${warnings[0]}${warnings.length > 1 ? ` +${warnings.length - 1} more` : ''}</span><span style="font-size:10px;color:var(--accent);font-weight:600;white-space:nowrap;cursor:pointer">Assign →</span></div>` : ''}
         </div>
       </div>
@@ -1472,6 +2151,231 @@ function workflowCardHtml(a, allApptsSameDay) {
       </div>
 
     </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Quick-assign popover — one-tap tech/bay assignment from the card footer or
+// on drop into a stage whose settings require tech/bay. No drawer needed.
+// ---------------------------------------------------------------------------
+let qaPopoverEl = null;
+let qaEscListener = null;
+let qaOutsideListener = null;
+
+function closeQuickAssign() {
+  qaPopoverEl?.remove();
+  qaPopoverEl = null;
+  if (qaEscListener) { document.removeEventListener('keydown', qaEscListener); qaEscListener = null; }
+  if (qaOutsideListener) { document.removeEventListener('mousedown', qaOutsideListener); qaOutsideListener = null; }
+}
+
+function assignTechToJob(jobId, techId) {
+  const jobs = db.jobs();
+  const idx = jobs.findIndex((j) => j.id === jobId);
+  if (idx < 0) return;
+  const prev = ensureAssignmentFields(jobs[idx]);
+  if (techId) {
+    // New pick becomes lead; existing additional techs are preserved
+    const assignedTechIds = [techId, ...prev.assignedTechIds.filter((id) => id !== techId)];
+    jobs[idx] = { ...jobs[idx], leadTechId: techId, techId, assignedTechIds };
+  } else {
+    jobs[idx] = { ...jobs[idx], leadTechId: null, techId: null, assignedTechIds: [] };
+  }
+  db.saveJobs(jobs);
+  try {
+    const actor = getCurrentActor();
+    const t = techId ? db.employeeById(techId) : null;
+    appendJobActivity(jobId, {
+      id: nextCollabId('act'),
+      type: 'assignment_changed',
+      label: t ? `Tech assigned to ${t.firstName} ${t.lastName}` : 'Tech unassigned',
+      actorId: actor.id, actorName: actor.name,
+      createdAt: new Date().toISOString(),
+      metadata: { leadTechId: techId || null, via: 'quick_assign' },
+    });
+  } catch { /* non-fatal */ }
+}
+
+function assignBayToJob(jobId, bayId) {
+  const jobs = db.jobs();
+  const idx = jobs.findIndex((j) => j.id === jobId);
+  if (idx < 0) return;
+  jobs[idx] = { ...jobs[idx], bayId: bayId || null };
+  db.saveJobs(jobs);
+  try {
+    const actor = getCurrentActor();
+    const name = bayId ? (db.bayById(bayId)?.name || QA_LOCATIONS[bayId] || bayId) : null;
+    appendJobActivity(jobId, {
+      id: nextCollabId('act'),
+      type: 'assignment_changed',
+      label: name ? `Bay changed to ${name}` : 'Bay cleared',
+      actorId: actor.id, actorName: actor.name,
+      createdAt: new Date().toISOString(),
+      metadata: { bayId: bayId || null, via: 'quick_assign' },
+    });
+  } catch { /* non-fatal */ }
+}
+
+// kind: 'tech' | 'bay' | 'both'. opts.title shows a header line (drop prompt).
+function openQuickAssign(anchorEl, jobId, kind, opts = {}) {
+  closeQuickAssign();
+  const job = db.jobById(jobId);
+  if (!job || !can('edit')) return;
+  const ej = ensureAssignmentFields(job);
+  const techs = db.employees().filter((e) => e.isTech);
+  const locations = getLocations(); // shopConfig-driven (seeded from bays + virtual zones)
+
+  const chip = (attr, val, label, active) =>
+    `<button data-${attr}="${val}" class="qa-chip${active ? ' active' : ''}">${label}</button>`;
+  const techSection = `
+    <div class="qa-label">Technician</div>
+    <div class="qa-chips">
+      ${techs.map((t) => chip('qa-tech', t.id, `${t.firstName} ${t.lastName}`, ej.leadTechId === t.id)).join('')}
+      ${chip('qa-tech', '', 'Unassigned', !ej.leadTechId)}
+    </div>`;
+  const baySection = `
+    <div class="qa-label">Bay / Location</div>
+    <div class="qa-chips">
+      ${chip('qa-bay', '', 'No bay', !job.bayId)}
+      ${locations.map((l) => chip('qa-bay', l.id, l.name, job.bayId === l.id)).join('')}
+    </div>`;
+
+  const el = document.createElement('div');
+  el.className = 'qa-popover';
+  el.innerHTML =
+    (opts.title ? `<div class="qa-title">${opts.title}</div>` : '') +
+    (kind !== 'bay' ? techSection : '') +
+    (kind !== 'tech' ? baySection : '') +
+    (kind === 'both' ? `<button class="qa-skip">Skip for now</button>` : '');
+  document.body.appendChild(el);
+  qaPopoverEl = el;
+
+  // Anchor below the clicked element, clamped to the viewport
+  const r = anchorEl?.getBoundingClientRect?.() || { left: innerWidth / 2 - 116, bottom: innerHeight / 3 };
+  el.style.left = Math.max(8, Math.min(r.left, innerWidth - el.offsetWidth - 8)) + 'px';
+  el.style.top  = Math.max(8, Math.min(r.bottom + 6, innerHeight - el.offsetHeight - 8)) + 'px';
+
+  // Pin the stage whose requirements we're satisfying — re-deriving mid-flow can
+  // read a stale workflowStatus override and close the popover early.
+  const qaStageId = opts.stageId || deriveWorkflowStage(job);
+  const stillNeeds = () => {
+    const j = db.jobById(jobId);
+    if (!j) return false;
+    const ss = getStepSettings(qaStageId);
+    const needTech = kind !== 'bay' && ss?.requiresTech && !ensureAssignmentFields(j).assignedTechIds.length;
+    const needBay  = kind !== 'tech' && ss?.requiresBay && !j.bayId;
+    return needTech || needBay;
+  };
+
+  const pick = (assignFn, val, group) => {
+    assignFn(jobId, val || null);
+    renderAll();
+    // Refresh drawer if it's open on this job
+    if (currentDrawerJobId === jobId && document.getElementById('appt-drawer-overlay')?.classList.contains('open')) {
+      openDrawer(jobId, false);
+    }
+    if (kind === 'both' && stillNeeds()) {
+      // Keep the popover up and mark the new selection active
+      el.querySelectorAll(`[data-${group}]`).forEach((b) => b.classList.toggle('active', b.dataset[group === 'qa-tech' ? 'qaTech' : 'qaBay'] === (val || '')));
+    } else {
+      closeQuickAssign();
+      toast('Assignment saved.', 'success');
+    }
+  };
+
+  el.querySelectorAll('[data-qa-tech]').forEach((b) =>
+    b.addEventListener('click', (e) => { e.stopPropagation(); pick(assignTechToJob, b.dataset.qaTech, 'qa-tech'); }));
+  el.querySelectorAll('[data-qa-bay]').forEach((b) =>
+    b.addEventListener('click', (e) => { e.stopPropagation(); pick(assignBayToJob, b.dataset.qaBay, 'qa-bay'); }));
+  el.querySelector('.qa-skip')?.addEventListener('click', closeQuickAssign);
+
+  qaEscListener = (e) => { if (e.key === 'Escape') closeQuickAssign(); };
+  document.addEventListener('keydown', qaEscListener);
+  // mousedown (not click) so the opening click never immediately closes it
+  qaOutsideListener = (e) => { if (!el.contains(e.target)) closeQuickAssign(); };
+  setTimeout(() => { if (qaPopoverEl === el) document.addEventListener('mousedown', qaOutsideListener); }, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Quick schedule popover — edit date/time/duration from a calendar card chip
+// without opening the drawer. Never touches workflow status.
+// ---------------------------------------------------------------------------
+function openSchedulePopover(anchorEl, jobId) {
+  closeQuickAssign(); // shares qaPopoverEl + esc/outside cleanup with quick-assign
+  const job = db.jobById(jobId);
+  if (!job || !can('edit')) return;
+  const curDate = job.scheduledDate || new Date().toISOString().slice(0, 10);
+  const curTime = job.scheduledTime || '';
+  let curDur = '';
+  if (job.scheduledStartAt && job.scheduledEndAt) {
+    const m = Math.round((new Date(job.scheduledEndAt) - new Date(job.scheduledStartAt)) / 60000);
+    if (m > 0) curDur = String(m);
+  }
+  const el = document.createElement('div');
+  el.className = 'qa-popover';
+  el.style.width = '248px';
+  el.innerHTML = `
+    <div class="qa-title">Reschedule ${job.ro || ''}</div>
+    <div class="qa-label">Date</div>
+    <input type="date" id="sp-date" class="input" style="height:28px;font-size:11px" value="${curDate}">
+    <div class="qa-label">Time</div>
+    <input type="time" id="sp-time" class="input" style="height:28px;font-size:11px" value="${curTime}">
+    <div class="qa-label">Duration</div>
+    <select id="sp-dur" class="select" style="height:28px;font-size:11px">
+      <option value="">— unchanged —</option>
+      ${[30, 60, 90, 120, 180, 240].map((m) => `<option value="${m}"${curDur === String(m) ? ' selected' : ''}>${m >= 60 ? (m / 60) + 'h' : m + 'm'}</option>`).join('')}
+    </select>
+    <div style="display:flex;gap:4px;flex-wrap:wrap">
+      <button class="sb-tool-btn" data-sp-quick="+15">+15 min</button>
+      <button class="sb-tool-btn" data-sp-quick="+30">+30 min</button>
+      <button class="sb-tool-btn" data-sp-quick="tomorrow">Tomorrow</button>
+    </div>
+    <div style="display:flex;gap:6px;margin-top:2px">
+      <button class="btn btn-primary btn-sm" id="sp-save" style="flex:1">Save</button>
+      <button class="btn btn-secondary btn-sm" id="sp-cancel">Cancel</button>
+    </div>`;
+  document.body.appendChild(el);
+  qaPopoverEl = el;
+  const r = anchorEl?.getBoundingClientRect?.() || { left: innerWidth / 2 - 124, bottom: innerHeight / 3 };
+  el.style.left = Math.max(8, Math.min(r.left, innerWidth - el.offsetWidth - 8)) + 'px';
+  el.style.top  = Math.max(8, Math.min(r.bottom + 6, innerHeight - el.offsetHeight - 8)) + 'px';
+
+  el.querySelectorAll('[data-sp-quick]').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const q = b.dataset.spQuick;
+    const dateEl = el.querySelector('#sp-date');
+    const timeEl = el.querySelector('#sp-time');
+    if (q === 'tomorrow') {
+      const d = new Date(dateEl.value + 'T00:00:00'); d.setDate(d.getDate() + 1);
+      dateEl.value = d.toISOString().slice(0, 10);
+    } else {
+      const add = q === '+15' ? 15 : 30;
+      const base = timeEl.value || '08:00';
+      const [h, m] = base.split(':').map(Number);
+      const total = h * 60 + m + add;
+      timeEl.value = `${String(Math.floor(total / 60) % 24).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+    }
+  }));
+  el.querySelector('#sp-cancel').addEventListener('click', closeQuickAssign);
+  el.querySelector('#sp-save').addEventListener('click', () => {
+    const date = el.querySelector('#sp-date').value;
+    const time = el.querySelector('#sp-time').value;
+    const dur  = el.querySelector('#sp-dur').value;
+    if (!date) { toast('Date required.', 'error'); return; }
+    try {
+      const updated = rescheduleJob(jobId, { date, time: time || null, durationMinutes: dur ? Number(dur) : null }, 'quick_edit');
+      toast(`${updated.ro || 'Appointment'} moved to ${util.fmtDate(date)}${time ? ` at ${util.fmtTime(time)}` : ''}`, 'success');
+    } catch (err) { toast(err.message, 'error'); }
+    closeQuickAssign();
+    renderSchedule();
+    if (currentDrawerJobId === jobId && document.getElementById('appt-drawer-overlay')?.classList.contains('open')) {
+      openDrawer(jobId, false);
+    }
+  });
+
+  qaEscListener = (e) => { if (e.key === 'Escape') closeQuickAssign(); };
+  document.addEventListener('keydown', qaEscListener);
+  qaOutsideListener = (e) => { if (!el.contains(e.target)) closeQuickAssign(); };
+  setTimeout(() => { if (qaPopoverEl === el) document.addEventListener('mousedown', qaOutsideListener); }, 0);
 }
 
 function bindApptCards(root) {
@@ -1505,9 +2409,583 @@ function bindApptCards(root) {
     });
   });
 
+  // Quick schedule chip on calendar cards — bind before card click
+  root.querySelectorAll('.sched2-card[data-appt-id] [data-sched-chip]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const card = el.closest('[data-appt-id]');
+      if (card) openSchedulePopover(el, card.dataset.apptId);
+    });
+  });
+
+  // Quick-assign: tech avatar / bay label in the footer — bind before card click
+  root.querySelectorAll('.wfb-card[data-appt-id] [data-qa-open]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const card = el.closest('[data-appt-id]');
+      if (card) openQuickAssign(el, card.dataset.apptId, el.dataset.qaOpen);
+    });
+  });
+
   // Card body click → drawer (expand button's stopPropagation keeps it from bubbling here)
   root.querySelectorAll('[data-appt-id]').forEach((card) => {
     card.addEventListener('click', () => openDrawer(card.dataset.apptId));
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Custom card HTML + interactions
+// ---------------------------------------------------------------------------
+function customCardHtml(card) {
+  const typeMeta = CUSTOM_CARD_TYPES[card.type] || CUSTOM_CARD_TYPES.other;
+  const priMeta  = CUSTOM_CARD_PRIORITY_META[card.priority] || CUSTOM_CARD_PRIORITY_META.normal;
+
+  const dueLabel = (() => {
+    if (!card.dueAt) return null;
+    try {
+      const d = new Date(card.dueAt);
+      const now = new Date();
+      const diffMs = d - now;
+      const diffMin = Math.round(diffMs / 60000);
+      if (diffMin < 0) return `<span style="color:var(--red)">Overdue ${Math.abs(diffMin) < 60 ? Math.abs(diffMin) + 'm ago' : Math.floor(Math.abs(diffMin)/60) + 'h ago'}</span>`;
+      if (diffMin < 60) return `<span style="color:var(--amber)">Due in ${diffMin}m</span>`;
+      return `Due ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+    } catch { return null; }
+  })();
+
+  const assignedLine = card.assignedName
+    ? `<span style="font-size:var(--t-xs);color:var(--ink-3)">${card.assignedName}</span>`
+    : '';
+  const customerLine = card.customerName
+    ? `<span style="font-size:var(--t-xs);color:var(--ink-3)">${card.customerName}${card.vehicleText ? ` · ${card.vehicleText}` : ''}</span>`
+    : '';
+
+  return `
+    <div class="wfb-card wfb-custom-card" draggable="true" data-custom-id="${card.id}" style="border-left-color:${typeMeta.color};border-left-width:3px">
+      <div class="wfb-card-collapsed">
+        <div style="display:flex;align-items:center;gap:5px;margin-bottom:3px">
+          <span style="font-size:14px;line-height:1;flex-shrink:0">${typeMeta.icon}</span>
+          <span style="font-weight:700;font-size:var(--t-sm);color:var(--ink);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${card.title}</span>
+        </div>
+        ${card.description ? `<div style="font-size:var(--t-xs);color:var(--ink-3);margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${card.description}</div>` : ''}
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:3px;margin-top:2px">
+          <span class="badge" style="font-size:9px;${priMeta.style || ''}" ${priMeta.cls ? `class="badge ${priMeta.cls}"` : ''}>${priMeta.label}</span>
+          <span class="badge" style="font-size:9px;background:rgba(0,0,0,.05);color:var(--ink-3)">${typeMeta.label}</span>
+          ${dueLabel ? `<span style="font-size:9px">${dueLabel}</span>` : ''}
+        </div>
+        ${(assignedLine || customerLine) ? `<div style="display:flex;flex-direction:column;gap:1px;margin-top:3px">${assignedLine}${customerLine}</div>` : ''}
+      </div>
+      <div class="wfb-card-footer" style="border-top:1px solid #F0F3F8;padding-top:5px;margin-top:4px">
+        <span style="font-size:9px;font-weight:600;color:var(--ink-4);letter-spacing:.03em;text-transform:uppercase">Custom</span>
+      </div>
+    </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Custom Step modal — create / edit / manage custom Kanban columns
+// ---------------------------------------------------------------------------
+function openCustomStepModal(editStepKey) {
+  const steps   = db.customWorkflowSteps();
+  const existing = editStepKey ? steps.find((s) => s.key === editStepKey) : null;
+
+  const manageHtml = steps.length > 0 ? `
+    <div class="field">
+      <div class="section-label" style="margin-bottom:var(--s2)">Existing custom steps</div>
+      <div style="display:flex;flex-direction:column;gap:var(--s2)">
+        ${steps.map((s) => {
+          const colorHex = CUSTOM_STEP_COLORS[s.color] || '#6366F1';
+          const jobCount = db.jobs().filter((j) => j.workflowStatus === s.key).length;
+          return `
+            <div style="display:flex;align-items:center;gap:var(--s2);padding:var(--s2) var(--s3);background:var(--canvas);border-radius:var(--r-md);border:1px solid var(--rule)">
+              <span style="width:10px;height:10px;border-radius:50%;background:${colorHex};flex-shrink:0"></span>
+              <span style="font-size:var(--t-sm);font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${s.label}</span>
+              <span class="badge badge-gray" style="font-size:9px;white-space:nowrap">${CUSTOM_STEP_GROUP_LABELS[s.group] || s.group}</span>
+              ${jobCount > 0 ? `<span class="badge" style="font-size:9px;background:#EFF6FF;color:#1D4ED8">${jobCount} job${jobCount !== 1 ? 's' : ''}</span>` : ''}
+              <button class="btn btn-secondary btn-sm" data-cs-edit="${s.key}" style="padding:2px 8px;font-size:11px;flex-shrink:0">Edit</button>
+              <button class="btn btn-secondary btn-sm" data-cs-delete="${s.key}" style="padding:2px 8px;font-size:11px;color:var(--red);flex-shrink:0">✕</button>
+            </div>`;
+        }).join('')}
+      </div>
+      <div style="border-top:1px solid var(--rule);margin:var(--s4) 0"></div>
+    </div>` : '';
+
+  const colorSwatches = Object.entries(CUSTOM_STEP_COLORS).map(([k, hex]) => {
+    const isSelected = (existing?.color || 'indigo') === k;
+    return `
+      <label style="cursor:pointer">
+        <input type="radio" name="cs-color" value="${k}" ${isSelected ? 'checked' : ''} style="display:none">
+        <span class="cs-swatch" data-swatch="${k}" title="${k}" style="width:22px;height:22px;border-radius:50%;background:${hex};display:block;border:2px solid ${isSelected ? '#000' : 'transparent'};box-sizing:border-box;transition:border-color .12s"></span>
+      </label>`;
+  }).join('');
+
+  document.getElementById('drawer-title').textContent = existing ? `Edit step: ${existing.label}` : '+ Custom Step';
+  document.getElementById('drawer-body').innerHTML = `
+    <div class="stack">
+      ${manageHtml}
+      <div class="section-label">${existing ? 'Edit step' : 'New custom step'}</div>
+
+      <div class="field">
+        <label class="label">Step name <span style="color:var(--red)">*</span></label>
+        <input class="input" id="cs-name" placeholder="e.g. Road Test, Waiting on Insurance" value="${existing?.label || ''}" autocomplete="off">
+      </div>
+
+      <div class="field">
+        <label class="label">Description</label>
+        <input class="input" id="cs-desc" placeholder="Optional — shown as column tooltip" value="${existing?.description || ''}">
+      </div>
+
+      <div class="field">
+        <label class="label">Color</label>
+        <div style="display:flex;gap:var(--s2);flex-wrap:wrap;align-items:center;padding:var(--s1) 0">${colorSwatches}</div>
+      </div>
+
+      <div class="field">
+        <label class="label">Group</label>
+        <select class="select" id="cs-group">
+          ${Object.entries(CUSTOM_STEP_GROUP_LABELS).map(([v, lbl]) =>
+            `<option value="${v}"${(existing?.group || 'shopfloor') === v ? ' selected' : ''}>${lbl}</option>`
+          ).join('')}
+        </select>
+        <div class="muted" style="font-size:var(--t-xs);margin-top:4px">Controls where the column appears on the board.</div>
+      </div>
+
+      <div class="field">
+        <label class="label">Sort order <span class="muted">(1–99, lower = earlier in group)</span></label>
+        <input class="input" id="cs-sort" type="number" min="1" max="99" value="${existing?.sortOrder ?? 50}" style="width:90px">
+      </div>
+
+      <div style="display:flex;gap:var(--s5)">
+        <label style="display:flex;align-items:center;gap:6px;font-size:var(--t-sm);cursor:pointer">
+          <input type="checkbox" id="cs-tech" ${existing?.requiresTech ? 'checked' : ''}> Requires technician
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:var(--t-sm);cursor:pointer">
+          <input type="checkbox" id="cs-bay" ${existing?.requiresBay ? 'checked' : ''}> Requires bay
+        </label>
+      </div>
+
+      <div class="row wrapf" style="gap:var(--s2);margin-top:var(--s2)">
+        <button class="btn btn-primary btn-sm" id="cs-save">${existing ? 'Save changes' : 'Add step'}</button>
+        <button class="btn btn-secondary btn-sm" id="cs-cancel">Cancel</button>
+      </div>
+    </div>`;
+
+  // Swatch click — update border highlight
+  document.querySelectorAll('input[name="cs-color"]').forEach((radio) => {
+    radio.addEventListener('change', () => {
+      document.querySelectorAll('.cs-swatch').forEach((sw) => { sw.style.borderColor = 'transparent'; });
+      const chosen = document.querySelector(`.cs-swatch[data-swatch="${radio.value}"]`);
+      if (chosen) chosen.style.borderColor = '#000';
+    });
+  });
+
+  // Edit / delete existing step buttons
+  document.querySelectorAll('[data-cs-edit]').forEach((btn) => {
+    btn.addEventListener('click', () => { closeDrawer(); setTimeout(() => openCustomStepModal(btn.dataset.csEdit), 50); });
+  });
+  document.querySelectorAll('[data-cs-delete]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.csDelete;
+      const remaining = db.customWorkflowSteps().filter((s) => s.key !== key);
+      db.saveCustomWorkflowSteps(remaining);
+      delete STAGE_META[key];
+      toast('Custom step removed.', 'success');
+      closeDrawer();
+      renderAll();
+    });
+  });
+
+  // Save / cancel
+  document.getElementById('cs-save').addEventListener('click', () => {
+    const name = document.getElementById('cs-name').value.trim();
+    if (!name) { toast('Step name is required.', 'error'); return; }
+    const colorVal = document.querySelector('input[name="cs-color"]:checked')?.value || 'indigo';
+    const group    = document.getElementById('cs-group').value;
+    const sort     = parseInt(document.getElementById('cs-sort').value, 10) || 50;
+    const reqTech  = document.getElementById('cs-tech').checked;
+    const reqBay   = document.getElementById('cs-bay').checked;
+    const desc     = document.getElementById('cs-desc').value.trim();
+    const now      = new Date().toISOString();
+    const allSteps = db.customWorkflowSteps();
+
+    if (existing) {
+      const idx = allSteps.findIndex((s) => s.key === existing.key);
+      if (idx >= 0) {
+        allSteps[idx] = { ...allSteps[idx], label: name, description: desc, color: colorVal, group, sortOrder: sort, requiresTech: reqTech, requiresBay: reqBay, updatedAt: now };
+      }
+    } else {
+      const baseKey  = slugifyStepKey(name);
+      const keyExists = allSteps.some((s) => s.key === baseKey);
+      const key      = keyExists ? baseKey + '_' + Date.now().toString(36) : baseKey;
+      allSteps.push({ id: key, key, label: name, description: desc, color: colorVal, group, sortOrder: sort, requiresTech: reqTech, requiresBay: reqBay, isActive: true, createdAt: now, updatedAt: now });
+    }
+
+    db.saveCustomWorkflowSteps(allSteps);
+    toast(existing ? `"${name}" updated.` : `"${name}" added to the board.`, 'success');
+    closeDrawer();
+    renderAll();
+  });
+  document.getElementById('cs-cancel').addEventListener('click', closeDrawer);
+  document.getElementById('appt-drawer-overlay').classList.add('open');
+}
+
+// ---------------------------------------------------------------------------
+// Step Settings drawer — gear icon on every column opens this
+// ---------------------------------------------------------------------------
+function openStepSettingsDrawer(stageId) {
+  const settings = getStepSettings(stageId);
+  if (!settings) { toast('Step not found.', 'error'); return; }
+
+  const isCustom = settings.isCustomStep;
+
+  // Extended color palette (covers built-in stage colors + custom palette)
+  const PALETTE = {
+    blue:         '#2563EB', 'light-blue': '#3B82F6', teal:    '#0891B2',
+    purple:       '#7C3AED', 'deep-purple':'#9333EA', indigo:  '#6366F1',
+    violet:       '#8B5CF6', green:        '#16A34A', amber:   '#F59E0B',
+    orange:       '#FB923C', red:          '#EF4444', slate:   '#94A3B8',
+    gray:         '#64748B', pink:         '#EC4899',
+  };
+  const currentHex  = (settings.colorHex || '#2563EB').toLowerCase();
+  const initColorKey = Object.entries(PALETTE).find(([, h]) => h.toLowerCase() === currentHex)?.[0] || 'blue';
+
+  const colorSwatches = Object.entries(PALETTE).map(([k, hex]) => {
+    const sel = initColorKey === k;
+    return `<label style="cursor:pointer" title="${k}"><input type="radio" name="ss-color" value="${hex}" ${sel ? 'checked' : ''} style="display:none"><span class="ss-swatch" data-hex="${hex}" style="width:20px;height:20px;border-radius:4px;background:${hex};display:block;border:2px solid ${sel ? '#0E2356' : 'transparent'};box-sizing:border-box;transition:border-color .1s"></span></label>`;
+  }).join('');
+
+  const jobsInStage  = isCustom ? db.jobs().filter((j) => j.workflowStatus === stageId).length : 0;
+  const cardsInStage = isCustom ? db.customBoardCards().filter((c) => c.workflowStatus === stageId).length : 0;
+  const totalInStage = jobsInStage + cardsInStage;
+  const alertMin = settings.alertAfterMinutes;
+  const alertNum  = alertMin ? (alertMin >= 60 ? Math.round(alertMin / 60) : alertMin) : '';
+  const alertUnit = alertMin ? (alertMin >= 60 ? 'hours' : 'minutes') : 'minutes';
+
+  document.getElementById('drawer-title').textContent = `Step Settings — ${settings.label}`;
+  document.getElementById('drawer-body').innerHTML = `
+    <div class="stack">
+      ${settings.isBuiltIn ? `<div style="padding:6px 10px;background:#EFF6FF;border-radius:var(--r-md);font-size:var(--t-xs);color:#1D4ED8">Built-in step — internal key cannot be changed.</div>` : ''}
+
+      <div class="field">
+        <label class="label">Label</label>
+        <input class="input" id="ss-label" value="${settings.label}" autocomplete="off">
+      </div>
+
+      <div class="field">
+        <label class="label">Description <span class="muted">(optional tooltip)</span></label>
+        <input class="input" id="ss-desc" placeholder="Optional" value="${settings.description || ''}">
+      </div>
+
+      <div class="field">
+        <label class="label">Color</label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;padding:4px 0">${colorSwatches}</div>
+      </div>
+
+      <div class="field">
+        <label class="label">Group</label>
+        ${isCustom
+          ? `<select class="select" id="ss-group">${Object.entries(CUSTOM_STEP_GROUP_LABELS).map(([v, lbl]) => `<option value="${v}"${settings.group === v ? ' selected' : ''}>${lbl}</option>`).join('')}</select>`
+          : `<div style="font-size:var(--t-sm);color:var(--ink-3);padding:4px 0">${CUSTOM_STEP_GROUP_LABELS[settings.group] || settings.group} <span class="muted">(built-in)</span></div>`}
+      </div>
+
+      ${isCustom ? `
+      <div class="field">
+        <label class="label">Sort order <span class="muted">(1–99, lower = earlier in group)</span></label>
+        <div style="display:flex;align-items:center;gap:var(--s2)">
+          <button class="btn btn-secondary btn-sm" id="ss-sort-dec" style="padding:2px 9px;font-size:15px;line-height:1">−</button>
+          <input class="input" id="ss-sort" type="number" min="1" max="99" value="${settings.sortOrder ?? 50}" style="width:70px;text-align:center">
+          <button class="btn btn-secondary btn-sm" id="ss-sort-inc" style="padding:2px 9px;font-size:15px;line-height:1">+</button>
+        </div>
+      </div>` : ''}
+
+      <div class="section-label" style="margin-top:var(--s2)">Assignment requirements</div>
+      <div style="display:flex;flex-direction:column;gap:var(--s2)">
+        <label style="display:flex;align-items:center;gap:8px;font-size:var(--t-sm);cursor:pointer">
+          <input type="checkbox" id="ss-tech" ${settings.requiresTech ? 'checked' : ''}> Requires technician (warn if no tech assigned)
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:var(--t-sm);cursor:pointer">
+          <input type="checkbox" id="ss-bay" ${settings.requiresBay ? 'checked' : ''}> Requires bay (warn if no bay assigned)
+        </label>
+      </div>
+
+      <div class="section-label" style="margin-top:var(--s2)">Alert threshold</div>
+      <div class="field">
+        <label class="label">Alert after <span class="muted">(leave blank to disable)</span></label>
+        <div style="display:flex;align-items:center;gap:var(--s2)">
+          <input class="input" id="ss-alert-num" type="number" min="0" max="9999" value="${alertNum}" placeholder="—" style="width:80px">
+          <select class="select" id="ss-alert-unit" style="width:auto">
+            <option value="minutes" ${alertUnit === 'minutes' ? 'selected' : ''}>minutes</option>
+            <option value="hours"   ${alertUnit === 'hours'   ? 'selected' : ''}>hours</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="section-label" style="margin-top:var(--s2)">Board behavior</div>
+      <div style="display:flex;flex-direction:column;gap:var(--s2)">
+        <label style="display:flex;align-items:center;gap:8px;font-size:var(--t-sm);cursor:pointer">
+          <input type="checkbox" id="ss-show" ${settings.showOnBoard !== false ? 'checked' : ''}> Show on board
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:var(--t-sm);cursor:pointer">
+          <input type="checkbox" id="ss-collapse" ${settings.collapseByDefault ? 'checked' : ''}> Collapse by default
+        </label>
+      </div>
+
+      <div class="row wrapf" style="gap:var(--s2);margin-top:var(--s4)">
+        <button class="btn btn-primary btn-sm" id="ss-save">Save settings</button>
+        <button class="btn btn-secondary btn-sm" id="ss-cancel">Cancel</button>
+        ${isCustom ? `<button class="btn btn-secondary btn-sm" id="ss-delete" style="margin-left:auto;color:var(--red)">Delete step</button>` : ''}
+      </div>
+      ${isCustom && totalInStage > 0 ? `
+      <div style="margin-top:var(--s3);padding:10px 12px;background:#FEF2F2;border:1px solid #FECACA;border-radius:var(--r-md)">
+        <div style="font-size:var(--t-xs);color:#991B1B;font-weight:600;margin-bottom:6px">⚠ ${totalInStage} card${totalInStage !== 1 ? 's are' : ' is'} in this step — move them before deleting.</div>
+        <div style="display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap">
+          <select class="select" id="ss-move-target" style="flex:1;min-width:140px;font-size:var(--t-xs)">
+            <option value="">— Move cards to… —</option>
+            ${buildCombinedStages(getActiveCustomSteps()).filter((s) => s.id !== stageId).map((s) => `<option value="${s.id}">${s.label}</option>`).join('')}
+          </select>
+          <button class="btn btn-sm" id="ss-move-delete" style="background:var(--red);color:#fff;white-space:nowrap" disabled>Move &amp; Delete</button>
+        </div>
+      </div>` : ''}
+    </div>`;
+
+  // Swatch click — border highlight
+  document.querySelectorAll('input[name="ss-color"]').forEach((radio) => {
+    radio.addEventListener('change', () => {
+      document.querySelectorAll('.ss-swatch').forEach((sw) => { sw.style.borderColor = 'transparent'; });
+      const chosen = document.querySelector(`.ss-swatch[data-hex="${radio.value}"]`);
+      if (chosen) chosen.style.borderColor = '#0E2356';
+    });
+  });
+
+  // Sort order ± (custom steps only)
+  document.getElementById('ss-sort-dec')?.addEventListener('click', () => {
+    const inp = document.getElementById('ss-sort'); if (inp) inp.value = Math.max(1, parseInt(inp.value || 50, 10) - 1);
+  });
+  document.getElementById('ss-sort-inc')?.addEventListener('click', () => {
+    const inp = document.getElementById('ss-sort'); if (inp) inp.value = Math.min(99, parseInt(inp.value || 50, 10) + 1);
+  });
+
+  // Save
+  document.getElementById('ss-save').addEventListener('click', () => {
+    const label    = document.getElementById('ss-label').value.trim() || settings.label;
+    const desc     = document.getElementById('ss-desc').value.trim();
+    const colorHex = document.querySelector('input[name="ss-color"]:checked')?.value || settings.colorHex;
+    const reqTech  = document.getElementById('ss-tech').checked;
+    const reqBay   = document.getElementById('ss-bay').checked;
+    const showBoard = document.getElementById('ss-show').checked;
+    const collapse = document.getElementById('ss-collapse').checked;
+    const alertNum  = parseInt(document.getElementById('ss-alert-num').value, 10) || 0;
+    const alertUnit = document.getElementById('ss-alert-unit').value;
+    const alertMins = alertNum > 0 ? (alertUnit === 'hours' ? alertNum * 60 : alertNum) : null;
+    const customExtras = isCustom ? { group: document.getElementById('ss-group')?.value, sortOrder: parseInt(document.getElementById('ss-sort')?.value, 10) || 50 } : null;
+
+    saveStepSettingsForStage(stageId, { label, description: desc, colorHex, requiresTech: reqTech, requiresBay: reqBay, showOnBoard: showBoard, collapseByDefault: collapse, alertAfterMinutes: alertMins }, customExtras);
+
+    // Immediately apply collapseByDefault state so it takes effect on re-render
+    if (collapse && collapsedCols[stageId] === undefined) collapsedCols = { ...collapsedCols, [stageId]: true };
+    saveCollapsedCols();
+
+    toast(`"${label}" settings saved.`, 'success');
+    closeDrawer();
+    renderAll();
+  });
+
+  // Delete (custom only)
+  function doDeleteStep() {
+    const remaining = db.customWorkflowSteps().filter((s) => s.key !== stageId);
+    db.saveCustomWorkflowSteps(remaining);
+    const allSettings = db.workflowStepSettings();
+    delete allSettings[stageId];
+    db.saveWorkflowStepSettings(allSettings);
+    delete STAGE_META[stageId];
+    toast('Custom step deleted.', 'success');
+    closeDrawer();
+    renderAll();
+  }
+
+  document.getElementById('ss-delete')?.addEventListener('click', () => {
+    if (totalInStage > 0) {
+      toast('Move cards out of this step before deleting.', 'error');
+      document.getElementById('ss-move-target')?.focus();
+      return;
+    }
+    if (!window.confirm('Delete this custom step? This cannot be undone.')) return;
+    doDeleteStep();
+  });
+
+  // Enable Move & Delete button only when a target is selected
+  document.getElementById('ss-move-target')?.addEventListener('change', (e) => {
+    const btn = document.getElementById('ss-move-delete');
+    if (btn) btn.disabled = !e.target.value;
+  });
+
+  document.getElementById('ss-move-delete')?.addEventListener('click', () => {
+    const targetId = document.getElementById('ss-move-target')?.value;
+    if (!targetId) return;
+    if (!window.confirm(`Move all cards to "${getEffectiveStageMeta(targetId)?.label || targetId}" and delete this step? This cannot be undone.`)) return;
+    // Move jobs
+    const jobs = db.jobs();
+    let changed = false;
+    jobs.forEach((j) => { if (j.workflowStatus === stageId) { j.workflowStatus = targetId; changed = true; } });
+    if (changed) db.saveJobs(jobs);
+    // Move custom board cards
+    const cards = db.customBoardCards();
+    let cardsChanged = false;
+    cards.forEach((c) => { if (c.workflowStatus === stageId) { c.workflowStatus = targetId; cardsChanged = true; } });
+    if (cardsChanged) db.saveCustomBoardCards(cards);
+    doDeleteStep();
+  });
+
+  document.getElementById('ss-cancel').addEventListener('click', closeDrawer);
+  document.getElementById('appt-drawer-overlay').classList.add('open');
+}
+
+function bindCustomCards(root) {
+  root.querySelectorAll('[data-custom-id]').forEach((card) => {
+    card.addEventListener('click', () => openCustomCardDrawer(card.dataset.customId));
+  });
+}
+
+function moveCustomCard(cardId, stageId) {
+  const cards = db.customBoardCards();
+  const idx = cards.findIndex((c) => c.id === cardId);
+  if (idx < 0) throw new Error('Custom card not found');
+  const now = new Date().toISOString();
+  cards[idx] = {
+    ...cards[idx],
+    workflowStage: stageId,
+    updatedAt: now,
+    currentStageEnteredAt: now,
+    stageHistory: [
+      ...(Array.isArray(cards[idx].stageHistory) ? cards[idx].stageHistory : []),
+      { stage: stageId, enteredAt: now, via: 'drag_drop' },
+    ],
+  };
+  db.saveCustomBoardCards(cards);
+  return cards[idx];
+}
+
+function openCustomCardDrawer(cardId) {
+  const card = db.customBoardCardById(cardId);
+  if (!card) { toast('Custom card not found.', 'error'); return; }
+  const typeMeta = CUSTOM_CARD_TYPES[card.type] || CUSTOM_CARD_TYPES.other;
+  const priMeta  = CUSTOM_CARD_PRIORITY_META[card.priority] || CUSTOM_CARD_PRIORITY_META.normal;
+  const stageMeta = getEffectiveStageMeta(card.workflowStage);
+
+  const employees = db.employees().filter((e) =>
+    ['owner', 'general_manager', 'service_manager', 'advisor', 'front_desk', 'technician'].includes(e.role)
+  );
+  const allDrawerStages = [...WORKFLOW_STAGES, ...getActiveCustomSteps()];
+  const stageOptions = allDrawerStages.map((s) =>
+    `<option value="${s.id}"${card.workflowStage === s.id ? ' selected' : ''}>${s.label}</option>`
+  ).join('');
+
+  document.getElementById('drawer-title').textContent = `${typeMeta.icon} ${card.title}`;
+  document.getElementById('drawer-body').innerHTML = `
+    <div class="stack">
+      <div class="row between">
+        <span class="muted">Type</span>
+        <span class="badge" style="background:${typeMeta.color}22;color:${typeMeta.color};font-size:var(--t-xs)">${typeMeta.icon} ${typeMeta.label}</span>
+      </div>
+      <div class="row between">
+        <span class="muted">Stage</span>
+        <span class="badge" style="background:${stageMeta.color};color:#fff;font-size:var(--t-xs)">${stageMeta.label}</span>
+      </div>
+      <div class="row between">
+        <span class="muted">Priority</span>
+        <span class="badge ${priMeta.cls}" style="font-size:var(--t-xs);${priMeta.style || ''}">${priMeta.label}</span>
+      </div>
+      ${card.description ? `<div><div class="muted" style="margin-bottom:4px">Description</div><div style="background:var(--canvas);border-radius:var(--r-md);padding:var(--s3);font-size:var(--t-13)">${card.description}</div></div>` : ''}
+      ${card.assignedName ? `<div class="row between"><span class="muted">Assigned to</span><span>${card.assignedName}</span></div>` : ''}
+      ${card.customerName ? `<div class="row between"><span class="muted">Customer</span><span>${card.customerName}</span></div>` : ''}
+      ${card.vehicleText ? `<div class="row between"><span class="muted">Vehicle</span><span>${card.vehicleText}</span></div>` : ''}
+      ${card.dueAt ? `<div class="row between"><span class="muted">Due</span><span>${new Date(card.dueAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</span></div>` : ''}
+      <div class="row between"><span class="muted">Board date</span><span>${card.boardDate || '—'}</span></div>
+      <div class="row between"><span class="muted">Created</span><span>${new Date(card.createdAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</span></div>
+
+      <div class="section-label">Move to stage</div>
+      <div style="display:flex;gap:var(--s2);align-items:center;flex-wrap:wrap">
+        <select class="select" id="ccd-stage" style="flex:1;min-width:0">${stageOptions}</select>
+        <button class="btn btn-secondary btn-sm" id="ccd-move">Move</button>
+      </div>
+
+      <div class="section-label">Edit</div>
+      <div class="field">
+        <label class="label">Title</label>
+        <input class="input" id="ccd-title" value="${(card.title || '').replace(/"/g, '&quot;')}">
+      </div>
+      <div class="field">
+        <label class="label">Description</label>
+        <textarea class="input" id="ccd-desc" rows="2" style="resize:vertical">${card.description || ''}</textarea>
+      </div>
+      <div class="row" style="gap:var(--s2)">
+        <div class="field" style="flex:1">
+          <label class="label">Priority</label>
+          <select class="select" id="ccd-priority">
+            ${Object.entries(CUSTOM_CARD_PRIORITY_META).map(([v, m]) =>
+              `<option value="${v}"${card.priority === v ? ' selected' : ''}>${m.label}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field" style="flex:1">
+          <label class="label">Assigned to</label>
+          <select class="select" id="ccd-assigned">
+            <option value="">Unassigned</option>
+            ${employees.map((e) => `<option value="${e.id}"${card.assignedTo === e.id ? ' selected' : ''}>${e.firstName} ${e.lastName}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="row wrapf" style="gap:var(--s2)">
+        <button class="btn btn-primary btn-sm" id="ccd-save">Save Changes</button>
+        <button class="btn btn-danger btn-sm" id="ccd-delete">Delete Card</button>
+        <button class="btn btn-secondary btn-sm" id="ccd-close">Close</button>
+      </div>
+    </div>`;
+
+  document.getElementById('appt-drawer-overlay').classList.add('open');
+
+  document.getElementById('ccd-close').addEventListener('click', closeDrawer);
+
+  document.getElementById('ccd-move').addEventListener('click', () => {
+    const newStage = document.getElementById('ccd-stage')?.value;
+    if (!newStage) return;
+    try {
+      moveCustomCard(cardId, newStage);
+      toast('Card moved.', 'success');
+      closeDrawer();
+      renderDayWorkflowView();
+    } catch (e) { toast(e.message, 'error'); }
+  });
+
+  document.getElementById('ccd-save').addEventListener('click', () => {
+    const title = (document.getElementById('ccd-title')?.value || '').trim();
+    if (!title) { toast('Title is required.', 'error'); return; }
+    const assignedId = document.getElementById('ccd-assigned')?.value || null;
+    const assignedEmp = assignedId ? db.employeeById(assignedId) : null;
+    const cards = db.customBoardCards();
+    const idx = cards.findIndex((c) => c.id === cardId);
+    if (idx < 0) { toast('Card not found.', 'error'); return; }
+    cards[idx] = {
+      ...cards[idx],
+      title,
+      description: (document.getElementById('ccd-desc')?.value || '').trim() || null,
+      priority: document.getElementById('ccd-priority')?.value || 'normal',
+      assignedTo: assignedId,
+      assignedName: assignedEmp ? `${assignedEmp.firstName} ${assignedEmp.lastName}` : null,
+      updatedAt: new Date().toISOString(),
+    };
+    db.saveCustomBoardCards(cards);
+    toast('Card updated.', 'success');
+    closeDrawer();
+    renderDayWorkflowView();
+  });
+
+  document.getElementById('ccd-delete').addEventListener('click', async () => {
+    const ok = await confirmDialog(`Delete custom card "${card.title}"?`, { confirmLabel: 'Delete', danger: true });
+    if (!ok) return;
+    const cards = db.customBoardCards().filter((c) => c.id !== cardId);
+    db.saveCustomBoardCards(cards);
+    toast('Card deleted.', 'success');
+    closeDrawer();
+    renderDayWorkflowView();
   });
 }
 
@@ -1517,8 +2995,8 @@ function bindApptCards(root) {
 // Quality Check, or a transition the status machine doesn't allow) just
 // toast the real error instead of silently failing.
 function wireDragDrop(root) {
-  // Wire job cards (data-appt-id) and pending/booking cards (data-pending-id)
-  root.querySelectorAll('.wfb-card[data-appt-id], .wfb-card[data-pending-id]').forEach((card) => {
+  // Wire job cards, pending cards, and custom cards
+  root.querySelectorAll('.wfb-card[data-appt-id], .wfb-card[data-pending-id], .wfb-card[data-custom-id]').forEach((card) => {
     card.addEventListener('dragstart', () => card.classList.add('dragging'));
     card.addEventListener('dragend',   () => card.classList.remove('dragging'));
   });
@@ -1535,7 +3013,12 @@ function wireDragDrop(root) {
       let moveOk = false;
 
       try {
-        if (dragging.dataset.pendingId) {
+        if (dragging.dataset.customId) {
+          // Custom card drag — simple stage update, no job state machine
+          moveCustomCard(dragging.dataset.customId, targetStage);
+          toast('Card moved.', 'success');
+          moveOk = true;
+        } else if (dragging.dataset.pendingId) {
           // Pending booking → confirm it into a job first, then move to target stage
           const ro = util.confirmBooking(dragging.dataset.pendingId);
           finalJobId = ro.id;
@@ -1544,19 +3027,32 @@ function wireDragDrop(root) {
             moveToStage(ro.id, targetStage, 'drag_drop');
           }
           toast('Request confirmed and moved.', 'success');
+          moveOk = true;
         } else {
           moveToStage(finalJobId, targetStage, 'drag_drop');
           toast('Moved.', 'success');
+          moveOk = true;
         }
-        moveOk = true;
       } catch (err) { toast(err.message, 'error'); }
 
       renderAll();
-      // Auto-open drawer when dropping into In Progress with no assignment
-      if (moveOk && finalJobId && targetStage === 'in_progress') {
+      // Quick-assign prompt when the target stage's settings require tech/bay
+      // and the job is missing them — fix it at the moment of action.
+      if (moveOk && finalJobId) {
+        const ss = getStepSettings(targetStage);
         const movedJob = db.jobById(finalJobId);
-        if (movedJob && (!ensureAssignmentFields(movedJob).assignedTechIds.length || !movedJob.bayId)) {
-          setTimeout(() => openDrawer(finalJobId), 60);
+        if (ss && movedJob) {
+          const needTech = ss.requiresTech && !ensureAssignmentFields(movedJob).assignedTechIds.length;
+          const needBay  = ss.requiresBay && !movedJob.bayId;
+          if (needTech || needBay) {
+            setTimeout(() => {
+              const anchor = document.querySelector(`.wfb-card[data-appt-id="${finalJobId}"]`)
+                || document.querySelector(`[data-stage="${targetStage}"]`);
+              openQuickAssign(anchor, finalJobId,
+                needTech && needBay ? 'both' : needTech ? 'tech' : 'bay',
+                { title: 'Assign before starting', stageId: targetStage });
+            }, 80);
+          }
         }
       }
     });
@@ -1568,7 +3064,9 @@ function wireDragDrop(root) {
 // from modules/appointments.js, kept as the secondary daily mode).
 // ---------------------------------------------------------------------------
 function renderDayCalendarView() {
+  document.querySelector('.sched2-layout')?.classList.remove('wfb-full');
   const r2t = document.getElementById('sb-r2-tools'); if (r2t) r2t.innerHTML = '';
+  const r2tabs = document.getElementById('sb-board-tabs'); if (r2tabs) r2tabs.innerHTML = '';
   const calBody = document.getElementById('cal-body');
   const dayAppts = filteredAppointments(visibleJobs().filter((j) => j.scheduledDate === selectedDate));
 
@@ -1622,7 +3120,7 @@ function calendarCardHtml(a) {
   const svc = a.services[0] ? a.services[0] + (a.services.length > 1 ? ` +${a.services.length - 1}` : '') : 'No service listed';
   return `
     <div class="sched2-card" data-appt-id="${a.id}" style="border-left-color:${meta.color}">
-      <div style="font-weight:700;font-size:var(--t-13)">${a.roNumber || ''} ${a.startTime ? util.fmtTime(a.startTime) : ''}</div>
+      <div style="font-weight:700;font-size:var(--t-13)">${a.roNumber || ''} <span class="sched2-time-chip" data-sched-chip title="Edit date / time">${a.startTime ? util.fmtTime(a.startTime) : 'Set time'}</span></div>
       <div style="color:var(--ink-2)">${a.customerName || 'Customer not assigned'}</div>
       <div class="muted">${a.vehicleLabel || 'Vehicle not assigned'}</div>
       <div class="muted">${svc}</div>
@@ -1634,7 +3132,9 @@ function calendarCardHtml(a) {
 // WEEK — unchanged from modules/appointments.js
 // ---------------------------------------------------------------------------
 function renderWeekView() {
+  document.querySelector('.sched2-layout')?.classList.remove('wfb-full');
   const r2t = document.getElementById('sb-r2-tools'); if (r2t) r2t.innerHTML = '';
+  const r2tabs = document.getElementById('sb-board-tabs'); if (r2tabs) r2tabs.innerHTML = '';
   const calBody = document.getElementById('cal-body');
   const d = new Date(selectedDate + 'T00:00:00');
   const monday = new Date(d); monday.setDate(d.getDate() - ((d.getDay() + 6) % 7));
@@ -1646,7 +3146,7 @@ function renderWeekView() {
   let html = `<div class="sched2-week-grid">`;
   weekDays.forEach((dateStr) => {
     const dayAppts = appts.filter((a) => a.date === dateStr).sort((x, y) => (x.startTime || '').localeCompare(y.startTime || ''));
-    html += `<div class="sched2-week-day${dateStr === today ? ' today' : ''}" style="${dateStr === today ? 'border-color:var(--accent);border-width:2px' : ''}">
+    html += `<div class="sched2-week-day${dateStr === today ? ' today' : ''}" data-week-date="${dateStr}" style="${dateStr === today ? 'border-color:var(--accent);border-width:2px' : ''}">
       <div style="font-weight:700;font-size:var(--t-13);text-align:center;border-bottom:1px solid var(--rule);padding-bottom:6px;margin-bottom:6px">
         ${util.fmtDate(dateStr).split(',')[0]}<br><span class="muted">${dateStr.slice(5)}</span>
       </div>
@@ -1656,13 +3156,41 @@ function renderWeekView() {
   html += `</div>`;
   calBody.innerHTML = html;
   bindApptCards(calBody);
+
+  // Week-view drag/drop: reschedule the DATE only — never touches workflow stage.
+  if (canDrag()) {
+    calBody.querySelectorAll('.sched2-card[data-appt-id]').forEach((card) => {
+      card.setAttribute('draggable', 'true');
+      card.addEventListener('dragstart', () => card.classList.add('dragging'));
+      card.addEventListener('dragend',   () => card.classList.remove('dragging'));
+    });
+    calBody.querySelectorAll('.sched2-week-day').forEach((col) => {
+      col.addEventListener('dragover',  (e) => { e.preventDefault(); col.classList.add('dragover'); });
+      col.addEventListener('dragleave', () => col.classList.remove('dragover'));
+      col.addEventListener('drop', (e) => {
+        e.preventDefault();
+        col.classList.remove('dragover');
+        const dragging = calBody.querySelector('.sched2-card.dragging');
+        if (!dragging) return;
+        const newDate = col.dataset.weekDate;
+        try {
+          const job = rescheduleJob(dragging.dataset.apptId, { date: newDate }, 'week_drag');
+          const t = job.scheduledTime ? ` at ${util.fmtTime(job.scheduledTime)}` : '';
+          toast(`${job.ro || 'Appointment'} moved to ${util.fmtDate(newDate)}${t}`, 'success');
+        } catch (err) { toast(err.message, 'error'); }
+        renderSchedule();
+      });
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
 // MONTH — unchanged from modules/appointments.js
 // ---------------------------------------------------------------------------
 function renderMonthView() {
+  document.querySelector('.sched2-layout')?.classList.remove('wfb-full');
   const r2t = document.getElementById('sb-r2-tools'); if (r2t) r2t.innerHTML = '';
+  const r2tabs = document.getElementById('sb-board-tabs'); if (r2tabs) r2tabs.innerHTML = '';
   const calBody = document.getElementById('cal-body');
   const d = new Date(selectedDate + 'T00:00:00');
   const monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
@@ -1705,7 +3233,7 @@ function renderMonthView() {
 // ---------------------------------------------------------------------------
 function renderLegend() {
   const items = viewMode === 'day' && dayMode === 'workflow'
-    ? [...WORKFLOW_STAGES, STAGE_META.cancelled]
+    ? [...WORKFLOW_STAGES, ...getActiveCustomSteps(), STAGE_META.cancelled]
     : Object.values(APPT_TYPE_META).filter((m, i, arr) => arr.findIndex((x) => x.label === m.label) === i && m.label !== 'Cancelled');
   document.getElementById('legend').innerHTML = items.map((m) => `<div class="sched2-legend-item"><span class="sched2-chip" style="background:${m.color}"></span>${m.label}</div>`).join('');
 }
@@ -1789,9 +3317,12 @@ function openPhotoViewer(photo, jobId) {
 // ---------------------------------------------------------------------------
 // Appointment detail drawer
 // ---------------------------------------------------------------------------
+let currentDrawerJobId = null; // tracked so quick-assign can refresh an open job drawer
+
 function openDrawer(jobId, editMode = false) {
   const job = db.jobById(jobId);
   if (!job) return;
+  currentDrawerJobId = jobId;
   const a = normalizeAppointment(job);
   const c = db.customerById(job.customerId);
   const advisor = job.advisorId ? db.employeeById(job.advisorId) : null;
@@ -2039,7 +3570,7 @@ function openDrawer(jobId, editMode = false) {
       ${can('edit') && a.workflowStage === 'estimates_requests' ? `<button class="btn btn-secondary btn-sm" id="drawer-convert-walkin">Convert to Walk-In</button>` : ''}
       ${can('edit') && job.approvalStatus !== 'pending' ? `<button class="btn btn-secondary btn-sm" id="drawer-waiting-approval">Mark Waiting Approval</button>` : ''}
       ${can('edit') && job.status === 'in_progress' ? `<button class="btn btn-secondary btn-sm" id="drawer-waiting-parts">Mark Waiting Parts</button>` : ''}
-      ${can('edit') && (['waiting', 'on_hold', 'walk_in'].includes(job.status) || a.workflowStage === 'waiting_bay') ? `<button class="btn btn-secondary btn-sm" id="drawer-in-progress">Start Work / In Progress</button>` : ''}
+      ${can('edit') && (['waiting', 'on_hold', 'walk_in'].includes(job.status) || a.workflowStage === 'dropped_off') ? `<button class="btn btn-secondary btn-sm" id="drawer-in-progress">Start Work / In Progress</button>` : ''}
       ${can('edit') && job.status === 'in_progress' ? `<button class="btn btn-secondary btn-sm" id="drawer-quality-check">Mark Quality Check</button>` : ''}
       ${can('edit') && ['in_progress', 'quality_check'].includes(job.status) ? `<button class="btn btn-secondary btn-sm" id="drawer-ready">Mark Ready for Pickup</button>` : ''}
       ${can('edit') && (job.status === 'ready' || deriveWorkflowStage(job) === 'ready_for_pickup') ? `<button class="btn btn-primary btn-sm" id="drawer-pickedup">Mark Picked Up / Closed</button>` : ''}
@@ -2668,7 +4199,7 @@ function openDrawer(jobId, editMode = false) {
   document.getElementById('appt-drawer-overlay').classList.add('open');
 }
 window.closeDrawer = closeDrawer;
-function closeDrawer() { document.getElementById('appt-drawer-overlay').classList.remove('open'); }
+function closeDrawer() { currentDrawerJobId = null; document.getElementById('appt-drawer-overlay').classList.remove('open'); }
 
 // Wire overlay click-away and Escape key once per page load.
 // Guard via data attribute so repeated renderAppointments() calls don't stack listeners.

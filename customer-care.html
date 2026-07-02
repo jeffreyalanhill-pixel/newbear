@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Torklio — Customer Care</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* ── Customer Care page ──────────────────────────────────────────────────── */
+  .cc-tabs { margin-bottom: var(--s5); }
+
+  /* Summary strip */
+  .cc-summary-strip { display:flex; gap:var(--s3); flex-wrap:wrap; margin-bottom:var(--s5); }
+  .cc-sum-card { flex:1 1 150px; background:var(--card); border:1px solid var(--rule); border-radius:var(--r-md); padding:var(--s3) var(--s4); min-width:130px; }
+  .cc-sum-card-num { font-size:var(--t-2xl); font-weight:800; color:var(--ink); line-height:1.1; }
+  .cc-sum-card-num.is-red { color:var(--red); }
+  .cc-sum-card-num.is-amber { color:#B45309; }
+  .cc-sum-card-num.is-green { color:#065F46; }
+  .cc-sum-card-label { font-size:var(--t-xs); color:var(--ink-3); font-weight:600; margin-top:3px; }
+
+  /* Task card */
+  .cc-task-card { background:var(--card); border:1px solid var(--rule); border-radius:var(--r-md); padding:var(--s4); margin-bottom:var(--s3); transition:box-shadow .15s; }
+  .cc-task-card:hover { box-shadow:0 2px 8px rgba(0,0,0,.07); }
+  .cc-task-card.is-urgent { border-left:3px solid var(--red); }
+  .cc-task-card.is-high { border-left:3px solid var(--amber); }
+  .cc-task-head { display:flex; align-items:flex-start; gap:var(--s3); margin-bottom:var(--s2); }
+  .cc-task-icon { font-size:18px; line-height:1; flex-shrink:0; margin-top:2px; }
+  .cc-task-meta { flex:1; min-width:0; }
+  .cc-task-title { font-weight:700; color:var(--ink); font-size:var(--t-base); line-height:1.3; }
+  .cc-task-sub { font-size:var(--t-13); color:var(--ink-3); margin-top:2px; }
+  .cc-task-badges { display:flex; flex-wrap:wrap; gap:5px; margin:var(--s2) 0; }
+  .cc-task-body { font-size:var(--t-13); color:var(--ink-2); margin-bottom:var(--s3); line-height:1.5; }
+  .cc-task-details { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:4px var(--s3); margin-bottom:var(--s3); }
+  .cc-task-detail { font-size:var(--t-xs); color:var(--ink-3); }
+  .cc-task-detail strong { color:var(--ink-2); }
+  .cc-task-actions { display:flex; flex-wrap:wrap; gap:var(--s2); }
+
+  /* Mood dot */
+  .mood-dot { display:inline-block; width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+
+  /* Channel badge */
+  .ch-badge { display:inline-flex; align-items:center; gap:3px; font-size:9px; font-weight:700; padding:1px 6px; border-radius:var(--r-chip); background:rgba(31,94,224,.10); color:var(--accent); }
+
+  /* Preview modal */
+  .cc-modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:1000; display:flex; align-items:center; justify-content:center; padding:var(--s4); }
+  .cc-modal { background:#fff; border-radius:var(--r-panel); box-shadow:0 20px 60px rgba(0,0,0,.18); max-width:540px; width:100%; max-height:90vh; overflow-y:auto; }
+  .cc-modal-head { display:flex; align-items:flex-start; justify-content:space-between; padding:var(--s4); border-bottom:1px solid var(--rule); gap:var(--s3); }
+  .cc-modal-title { font-size:var(--t-lg); font-weight:700; color:var(--ink); }
+  .cc-modal-sub { font-size:var(--t-13); color:var(--ink-3); margin-top:3px; }
+  .cc-modal-body { padding:var(--s4); }
+  .cc-modal-foot { display:flex; gap:var(--s2); padding:var(--s3) var(--s4); border-top:1px solid var(--rule); flex-wrap:wrap; }
+  .cc-preview-phone { background:var(--canvas); border-radius:16px; padding:var(--s3) var(--s4); margin:var(--s3) 0; border:1px solid var(--rule); }
+  .cc-preview-phone-bubble { background:var(--accent); color:#fff; border-radius:14px 14px 3px 14px; padding:var(--s2) var(--s3); font-size:var(--t-13); line-height:1.5; max-width:85%; margin-left:auto; word-break:break-word; white-space:pre-wrap; }
+  .cc-preview-email-box { background:var(--canvas); border:1px solid var(--rule); border-radius:var(--r-md); padding:var(--s3) var(--s4); margin:var(--s3) 0; font-size:var(--t-13); line-height:1.6; color:var(--ink-2); white-space:pre-wrap; word-break:break-word; }
+  .cc-demo-warn { background:#FFF7ED; border:1px solid #FED7AA; color:#92400E; border-radius:var(--r-md); padding:var(--s2) var(--s3); font-size:var(--t-xs); font-weight:600; margin-bottom:var(--s3); }
+  .cc-missing-warn { background:#FEF2F2; border:1px solid #FCA5A5; color:#991B1B; border-radius:var(--r-md); padding:var(--s2) var(--s3); font-size:var(--t-xs); font-weight:600; margin-bottom:var(--s3); }
+
+  /* Template cards */
+  .cc-tpl-card { background:var(--card); border:1px solid var(--rule); border-radius:var(--r-md); padding:var(--s3) var(--s4); margin-bottom:var(--s3); }
+  .cc-tpl-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:var(--s2); gap:var(--s2); }
+  .cc-tpl-name { font-weight:700; color:var(--ink); font-size:var(--t-base); }
+  .cc-tpl-body { font-size:var(--t-13); color:var(--ink-2); line-height:1.6; background:var(--canvas); border-radius:var(--r-md); padding:var(--s2) var(--s3); white-space:pre-wrap; word-break:break-word; }
+
+  /* Automation rule cards */
+  .cc-rule-card { background:var(--card); border:1px solid var(--rule); border-radius:var(--r-md); padding:var(--s3) var(--s4); margin-bottom:var(--s2); display:flex; align-items:flex-start; gap:var(--s3); }
+  .cc-rule-icon { font-size:20px; flex-shrink:0; margin-top:2px; }
+  .cc-rule-body { flex:1; }
+  .cc-rule-title { font-weight:700; color:var(--ink); font-size:var(--t-13); margin-bottom:3px; }
+  .cc-rule-detail { font-size:var(--t-xs); color:var(--ink-3); line-height:1.5; }
+
+  /* Empty state */
+  .cc-empty { text-align:center; padding:var(--s8) var(--s4); color:var(--ink-3); }
+  .cc-empty-icon { font-size:36px; margin-bottom:var(--s2); }
+  .cc-empty-title { font-weight:700; color:var(--ink-2); margin-bottom:var(--s1); }
+
+  /* Integration note */
+  .cc-int-note { background:var(--canvas); border:1px solid var(--rule); border-radius:var(--r-md); padding:var(--s3) var(--s4); margin-top:var(--s4); font-size:var(--t-13); color:var(--ink-3); }
+  .cc-int-note h4 { font-size:var(--t-13); font-weight:700; color:var(--ink-2); margin:0 0 var(--s2); }
+  .cc-int-note ul { margin:0; padding-left:var(--s4); }
+  .cc-int-note li { margin-bottom:3px; }
+
+  /* Result chip on completed tasks */
+  .cc-result { background:#F0FDF4; border:1px solid #BBF7D0; border-radius:var(--r-md); padding:var(--s2) var(--s3); font-size:var(--t-xs); color:#065F46; margin-top:var(--s2); }
+  .cc-snooze-row { display:flex; align-items:center; gap:var(--s2); flex-wrap:wrap; }
+  .cc-snooze-row input[type="date"] { height:30px; padding:0 var(--s2); border:1px solid var(--rule); border-radius:var(--r-chip); font-size:var(--t-xs); color:var(--ink); background:#fff; }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <nav class="icon-rail" id="icon-rail"></nav>
+  <div class="main-col">
+    <header class="app-header">
+      <div>
+        <div class="greeting-title">Customer Care</div>
+        <div class="greeting-sub">Follow up after service, earn reviews, recover declined work, and bring customers back.</div>
+      </div>
+      <div class="header-actions">
+        <button class="icon-btn" title="Notifications">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+        </button>
+        <div class="avatar" id="avatar">J</div>
+      </div>
+    </header>
+
+    <div class="page-body">
+      <div id="cc-summary-strip"></div>
+      <div class="seg cc-tabs" id="cc-tabs">
+        <button data-tab="today">Today</button>
+        <button data-tab="reviews">Review Requests</button>
+        <button data-tab="followups">Service Follow-Ups</button>
+        <button data-tab="declined">Declined Work</button>
+        <button data-tab="issues">Customer Issues</button>
+        <button data-tab="winback">Coupons / Winback</button>
+        <button data-tab="rewards">Rewards Follow-Up</button>
+        <button data-tab="completed">Completed</button>
+        <button data-tab="templates">Templates</button>
+        <button data-tab="automation">Automation Rules</button>
+      </div>
+      <div id="cc-body"></div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { db } from './lib/data.js';
+  db.init();
+  import('./modules/customer-care/customer-care-app.js?v=2').then(m => m.renderCustomerCare());
+</script>
+</body>
+</html>

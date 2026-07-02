@@ -6,27 +6,44 @@
 <title>Torklio — Appointments Scheduler</title>
 <link rel="stylesheet" href="style.css">
 <style>
+  /* ── Page header: shrink for scheduler density ──────────────────────────── */
+  .greeting-title { font-size:var(--t-lg) !important; font-weight:700 !important; }
+  .greeting-sub { display:none !important; }
+  .app-header { margin-bottom:var(--s2) !important; }
+
   /* ── Layout ─────────────────────────────────────────────────────────────── */
   .sched2-layout { display:grid; grid-template-columns:1fr 360px; gap:var(--s4); align-items:start; }
   @media(max-width:1100px) { .sched2-layout { grid-template-columns:1fr; } }
 
-  /* ══ SCHEDULE BOARD — 2-ROW COMMAND AREA ════════════════════════════════════ */
+  /* ── Full-width workflow mode (hides right rail) ────────────────────────── */
+  .sched2-layout.wfb-full { grid-template-columns: 1fr !important; }
+  .sched2-layout.wfb-full .stack { display: none !important; }
 
-  /* ── Row 1: Nav + view toggles + filters ────────────────────────────────── */
-  .sb-r1 { display:flex; align-items:center; gap:5px; padding:7px 14px; border-bottom:1px solid var(--rule); flex-wrap:wrap; }
-  /* Nav pill: ‹ Today › | date */
-  .sb-nav-group { display:inline-flex; align-items:center; background:#fff; border:1px solid var(--rule); border-radius:6px; padding:2px; flex-shrink:0; }
+  /* ── Compact summary strip ───────────────────────────────────────────────── */
+  .sb-sum-strip { display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding:6px 14px; border-bottom:1px solid var(--rule); background:var(--canvas); }
+  .sb-sum-chip { display:inline-flex; align-items:center; gap:4px; font-size:11px; color:var(--ink-3); white-space:nowrap; }
+  .sb-sum-chip strong { color:var(--ink); font-weight:700; }
+  .sb-sum-sep { width:1px; height:12px; background:var(--rule); flex-shrink:0; }
+  .sb-sum-chip.is-amber strong { color:#92400E; }
+  .sb-sum-chip.is-red strong { color:#B91C1C; }
+  .sb-sum-chip.is-green strong { color:#065F46; }
+
+  /* ══ SCHEDULE BOARD — TOOLBAR + BOARD NAV ═══════════════════════════════════ */
+
+  /* ── Compact toolbar: Nav + view toggles + filters + search ──────────────── */
+  .sb-r1 { display:flex; align-items:center; gap:5px; padding:7px 14px; border-bottom:1px solid var(--rule); background:#fff; flex-wrap:wrap; }
+  .sb-nav-group { display:inline-flex; align-items:center; background:var(--canvas); border:1px solid var(--rule); border-radius:6px; padding:2px; flex-shrink:0; }
   .sb-nav-btn { height:26px; padding:0 9px; border:none; background:transparent; border-radius:4px; font-size:12px; font-weight:600; color:var(--ink-2); cursor:pointer; transition:background .1s,color .1s; white-space:nowrap; }
-  .sb-nav-btn:hover { background:var(--canvas); color:var(--ink); }
+  .sb-nav-btn:hover { background:#fff; color:var(--ink); }
   .sb-nav-divider { width:1px; height:14px; background:var(--rule); flex-shrink:0; margin:0 1px; }
   .sb-date-input { height:26px; padding:0 6px; border:none; background:transparent; border-radius:4px; font-size:11px; color:var(--ink-3); cursor:pointer; outline:none; }
   .sb-date-input:focus { background:var(--canvas); }
-  /* View toggle — keep .sched2-viewbtns for JS selector compatibility */
-  .sched2-viewbtns { display:inline-flex; background:#fff; border:1px solid var(--rule); border-radius:6px; padding:2px; flex-shrink:0; }
-  .sched2-viewbtns button { height:26px; padding:0 9px; border:none; background:transparent; border-radius:4px; font-size:12px; font-weight:600; color:var(--ink-3); cursor:pointer; transition:background .12s,color .12s; white-space:nowrap; }
-  .sched2-viewbtns button:hover { color:var(--ink-2); }
-  .sched2-viewbtns button.active { background:var(--accent); color:#fff; }
-  /* Filters inline in row 1 */
+  /* View segment (Day / Week / Month) */
+  .sched2-viewbtns { display:inline-flex; background:var(--canvas); border:1px solid var(--rule); border-radius:6px; padding:2px; flex-shrink:0; }
+  .sched2-viewbtns button { height:26px; padding:0 10px; border:none; background:transparent; border-radius:4px; font-size:11px; font-weight:600; color:var(--ink-3); cursor:pointer; transition:background .12s,color .12s; white-space:nowrap; }
+  .sched2-viewbtns button:hover { color:var(--ink-2); background:rgba(255,255,255,.6); }
+  .sched2-viewbtns button.active { background:#fff; color:var(--ink); box-shadow:0 1px 3px rgba(0,0,0,.08),0 0 0 1px rgba(0,0,0,.04); }
+  /* Filters */
   .sb-filter-sel { height:26px; padding:0 6px; border:1px solid var(--rule); border-radius:6px; font-size:11px; color:var(--ink-2); background:#fff; cursor:pointer; min-width:76px; max-width:140px; flex:1; }
   .sb-filter-sel:focus { outline:none; border-color:var(--accent); }
   .sb-filter-search {
@@ -38,28 +55,76 @@
   }
   .sb-filter-search:focus { outline:none; border-color:var(--accent); }
   .sb-filter-search::placeholder { color:var(--ink-4); }
-
-  /* ── Row 2: Board tools + Walk-In ───────────────────────────────────────── */
-  .sb-r2 { display:flex; align-items:center; gap:4px; padding:5px 14px; border-bottom:1px solid var(--rule); flex-wrap:wrap; }
-  /* Board tools injected by JS */
-  #sb-r2-tools { display:flex; align-items:center; gap:4px; flex:1; flex-wrap:nowrap; }
-  /* Walk-In (orange CTA, static HTML, at row end) */
-  #walkin-slot { margin-left:auto; flex-shrink:0; }
-  #walkin-slot button { height:26px; padding:0 12px; background:#FF6A2B; color:#fff; border:none; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; transition:opacity .12s; white-space:nowrap; }
+  /* Walk-In + Custom Card CTAs — right side of toolbar */
+  #walkin-slot { margin-left:auto; display:flex; align-items:center; gap:5px; flex-shrink:0; }
+  #walkin-slot button { height:26px; padding:0 12px; background:var(--accent); color:#fff; border:none; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; transition:opacity .12s; white-space:nowrap; }
   #walkin-slot button:hover { opacity:.88; }
-  /* Metric tabs */
-  .sb-metric-tabs { display:inline-flex; background:var(--canvas); border:1px solid var(--rule); border-radius:5px; padding:2px; flex-shrink:0; }
-  .sb-metric-btn { height:22px; padding:0 7px; border:none; background:transparent; border-radius:3px; font-size:10px; font-weight:600; color:var(--ink-3); cursor:pointer; transition:background .1s,color .1s; white-space:nowrap; }
-  .sb-metric-btn:hover { color:var(--ink-2); }
-  .sb-metric-btn.active { background:var(--accent); color:#fff; }
-  /* Card view toggle */
-  .sb-card-tabs { display:inline-flex; background:var(--canvas); border:1px solid var(--rule); border-radius:5px; padding:2px; flex-shrink:0; }
-  .sb-card-btn { height:22px; padding:0 7px; border:none; background:transparent; border-radius:3px; font-size:10px; font-weight:600; color:var(--ink-3); cursor:pointer; transition:background .1s,color .1s; }
-  .sb-card-btn.active { background:var(--accent); color:#fff; }
-  /* Collapse / action buttons */
-  .sb-tool-btn { height:22px; padding:0 7px; border:1px solid var(--rule); border-radius:5px; font-size:10px; font-weight:600; color:var(--ink-3); background:var(--canvas); cursor:pointer; white-space:nowrap; transition:background .1s; }
-  .sb-tool-btn:hover { background:var(--rule); color:var(--ink-2); }
-  .sb-tools-sep { width:1px; height:14px; background:var(--rule); flex-shrink:0; margin:0 2px; }
+  #btn-custom-card { background:#fff !important; color:var(--ink-2) !important; border:1px solid var(--rule) !important; font-weight:600 !important; }
+  #btn-custom-card:hover { background:var(--canvas) !important; border-color:#C8D2E2 !important; color:var(--ink) !important; }
+
+  /* ── Board nav: sits directly above the Kanban columns ───────────────────── */
+  .sb-board-nav { background:var(--canvas); border-bottom:2px solid var(--rule); }
+
+  /* Tabs strip — solid pill tabs */
+  .sb-tabs-strip { display:flex; align-items:center; gap:4px; padding:8px 14px; overflow-x:auto; scrollbar-width:none; flex-wrap:nowrap; }
+  .sb-tabs-strip::-webkit-scrollbar { display:none; }
+
+  /* Solid pill tab — inactive: cool slate */
+  .sb-tab { display:inline-flex; align-items:center; gap:5px; height:30px; padding:0 12px; border:none; border-radius:6px; background:#DDE3ED; color:#3D4C61; font-size:11px; font-weight:600; cursor:pointer; white-space:nowrap; transition:background .12s,color .12s; flex-shrink:0; }
+  .sb-tab:hover { background:#C8D2E2; color:#1E293B; }
+  /* Active tab: accent blue + white text */
+  .sb-tab.active { background:var(--accent); color:#fff; font-weight:700; }
+  .sb-tab.active:hover { background:var(--accent); opacity:.92; }
+  /* Badge */
+  .sb-tab-badge { display:inline-flex; align-items:center; justify-content:center; min-width:16px; height:15px; padding:0 4px; border-radius:8px; background:rgba(0,0,0,.12); color:inherit; font-size:9px; font-weight:700; }
+  .sb-tab.active .sb-tab-badge { background:rgba(255,255,255,.28); color:#fff; }
+  /* Divider between tab groups */
+  .sb-tab-divider { width:1px; height:18px; background:#C5CDD9; flex-shrink:0; margin:0 3px; align-self:center; }
+
+  /* Options strip — Metric view + density + collapse controls */
+  .sb-opts-strip { display:flex; align-items:center; gap:4px; padding:5px 14px; border-top:1px solid var(--rule); background:#fff; flex-wrap:wrap; }
+  #sb-r2-tools { display:flex; align-items:center; gap:4px; flex:1; flex-wrap:nowrap; }
+
+  /* Metric view toggle — Overview | Money | Time | Capacity | Techs | Bottlenecks */
+  .sb-metric-tabs { display:inline-flex; background:var(--canvas); border:1px solid var(--rule); border-radius:6px; padding:2px; flex-shrink:0; gap:1px; }
+  .sb-metric-btn { height:22px; padding:0 8px; border:none; background:transparent; border-radius:4px; font-size:10px; font-weight:600; color:var(--ink-3); cursor:pointer; transition:background .12s,color .12s; white-space:nowrap; }
+  .sb-metric-btn:hover { color:var(--ink-2); background:rgba(255,255,255,.6); }
+  .sb-metric-btn.active { background:#fff; color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.07),0 0 0 1px rgba(0,0,0,.04); }
+
+  /* Card density toggle — Minimal | Detailed */
+  .sb-card-tabs { display:inline-flex; background:var(--canvas); border:1px solid var(--rule); border-radius:6px; padding:2px; flex-shrink:0; }
+  .sb-card-btn { height:22px; padding:0 9px; border:none; background:transparent; border-radius:4px; font-size:10px; font-weight:600; color:var(--ink-3); cursor:pointer; transition:background .12s,color .12s; white-space:nowrap; }
+  .sb-card-btn:hover { color:var(--ink-2); }
+  .sb-card-btn.active { background:#fff; color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.07),0 0 0 1px rgba(0,0,0,.04); }
+  /* Column action buttons */
+  .sb-tool-btn { height:22px; padding:0 8px; border:1px solid var(--rule); border-radius:5px; font-size:10px; font-weight:600; color:var(--ink-3); background:#fff; cursor:pointer; white-space:nowrap; transition:background .1s, color .1s; }
+  .sb-tool-btn:hover { background:var(--canvas); color:var(--ink-2); }
+
+  /* ── Dropdown menus: Filters (row 1) + View options (board nav) ──────────── */
+  .sb-dd { position:relative; flex-shrink:0; }
+  .sb-dd summary { list-style:none; cursor:pointer; }
+  .sb-dd summary::-webkit-details-marker { display:none; }
+  .sb-dd-btn { display:inline-flex; align-items:center; gap:5px; height:26px; padding:0 10px; border:1px solid var(--rule); border-radius:6px; font-size:11px; font-weight:600; color:var(--ink-2); background:#fff; white-space:nowrap; transition:border-color .1s, color .1s; }
+  .sb-dd-btn::after { content:'▾'; font-size:9px; color:var(--ink-4); }
+  .sb-dd[open] .sb-dd-btn { border-color:var(--accent); color:var(--ink); }
+  .sb-dd-badge { background:var(--accent); color:#fff; border-radius:8px; font-size:9px; padding:0 5px; line-height:14px; font-weight:700; }
+  .sb-dd-panel { position:absolute; top:calc(100% + 4px); left:0; z-index:60; background:#fff; border:1px solid var(--rule); border-radius:8px; box-shadow:0 8px 24px rgba(21,28,40,.12); padding:10px; min-width:214px; display:flex; flex-direction:column; gap:8px; }
+  .sb-dd-field { display:flex; flex-direction:column; gap:3px; font-size:10px; font-weight:700; color:var(--ink-3); text-transform:uppercase; letter-spacing:.05em; }
+  .sb-dd-field select { height:26px; border:1px solid var(--rule); border-radius:6px; font-size:11px; color:var(--ink-2); background:#fff; padding:0 6px; font-weight:400; text-transform:none; letter-spacing:normal; }
+  .sb-dd-field select:focus { outline:none; border-color:var(--accent); }
+  .sb-dd-label { font-size:10px; font-weight:700; color:var(--ink-3); text-transform:uppercase; letter-spacing:.05em; margin-top:2px; }
+
+  /* ── Quick-assign popover (tech/bay one-tap picker) ─────────────────────── */
+  .qa-popover { position:fixed; z-index:120; background:#fff; border:1px solid var(--rule); border-radius:10px; box-shadow:0 10px 30px rgba(21,28,40,.16); padding:10px 11px; width:232px; display:flex; flex-direction:column; gap:6px; }
+  .qa-title { font-size:11px; font-weight:700; color:var(--ink); }
+  .qa-label { font-size:9px; font-weight:700; color:var(--ink-3); text-transform:uppercase; letter-spacing:.05em; }
+  .qa-chips { display:flex; flex-wrap:wrap; gap:4px; }
+  .qa-chip { border:1px solid var(--rule); background:#fff; border-radius:12px; padding:3px 9px; font-size:10.5px; font-weight:600; color:var(--ink-2); cursor:pointer; transition:border-color .1s, background .1s, color .1s; }
+  .qa-chip:hover { border-color:var(--accent); color:var(--ink); }
+  .qa-chip.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .qa-skip { border:none; background:none; font-size:10px; color:var(--ink-3); cursor:pointer; text-decoration:underline; align-self:flex-end; padding:2px 0 0; }
+  .qa-skip:hover { color:var(--ink); }
+  .sb-tools-sep { width:1px; height:14px; background:var(--rule); flex-shrink:0; margin:0 3px; }
   /* Timing chips */
   .sb-timing-chips { display:inline-flex; align-items:center; gap:3px; flex-shrink:0; }
 
@@ -73,26 +138,37 @@
   .sched2-card{background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:var(--r-chip);padding:6px 8px;margin-bottom:4px;cursor:pointer;font-size:var(--t-13);transition:box-shadow .15s}
   .sched2-card:hover{box-shadow:var(--shadow-pop)}
   .sched2-week-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:var(--s2)}
-  .sched2-week-day{background:var(--canvas);border:1px solid var(--rule);border-radius:var(--r-md);padding:var(--s2);min-height:140px}
+  .sched2-week-day{background:var(--canvas);border:1px solid var(--rule);border-radius:var(--r-md);padding:var(--s2);min-height:140px;position:relative}
+  .sched2-week-day.dragover{outline:2px dashed var(--accent);outline-offset:-2px;background:#F4F8FF}
+  .sched2-week-day.dragover::after{content:'Drop to reschedule';position:absolute;bottom:6px;left:50%;transform:translateX(-50%);font-size:10px;font-weight:700;color:var(--accent);background:#fff;border:1px solid var(--accent);border-radius:8px;padding:1px 8px;white-space:nowrap;pointer-events:none}
+  .sched2-card.dragging{opacity:.5}
+  .sched2-time-chip{cursor:pointer;color:var(--accent);border-bottom:1px dashed currentColor;transition:background .1s}
+  .sched2-time-chip:hover{background:#EAF1FF;border-radius:3px}
   .sched2-month-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:var(--r-md);overflow:hidden}
   .sched2-month-cell{background:var(--card);min-height:84px;padding:6px;cursor:pointer;transition:background .15s}
   .sched2-month-cell:hover{background:var(--canvas)}
   .sched2-month-cell.other-month{background:#FAFBFC;color:var(--ink-4)}
   .sched2-month-cell.today{border:2px solid var(--accent)}
   .sched2-pending-card{border:1px solid var(--rule);border-radius:var(--r-md);padding:var(--s3);margin-bottom:var(--s2)}
-  /* ── Workflow board ─────────────────────────────────────────────────────── */
-  .wfb-board { display:flex; gap:9px; overflow-x:auto; padding-bottom:var(--s4); scroll-behavior:smooth; -webkit-overflow-scrolling:touch; align-items:flex-start; }
+  /* .wfb-tabbar is no longer used — tabs live in .sb-r2 as .sb-tab elements */
+  .wfb-tabbar { display:none; }
+
+  /* ── Metric strip inside each column (shown when a metric view is active) ── */
+  .wfb-col-metric { padding:4px 10px 3px; font-size:10px; color:var(--ink-3); background:rgba(0,0,0,.02); border-bottom:1px solid #EBF0F7; line-height:1.4; min-height:22px; }
+
+  /* ── Workflow board ───────────────────────────────────────────────────────── */
+  .wfb-board { display:flex; gap:9px; overflow-x:auto; padding:var(--s3) var(--s4) var(--s4); scroll-behavior:smooth; -webkit-overflow-scrolling:touch; align-items:flex-start; }
 
   /* Column shell */
   .wfb-col { flex:0 0 234px; background:#F7F9FC; border-radius:10px; min-height:80px; border:1px solid #DDE3EC; overflow:hidden; display:flex; flex-direction:column; }
   .wfb-col.dragover { outline:2px dashed var(--accent); outline-offset:2px; }
 
   /* ── Colored header bar ──────────────────────────────────────────────────── */
-  .wfb-col-header { display:flex; align-items:center; gap:7px; padding:10px 12px 9px; color:#fff; min-height:40px; }
-  .wfb-col-header-title { font-size:12px; font-weight:700; letter-spacing:.01em; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-shadow:0 1px 2px rgba(0,0,0,.18); }
-  .wfb-col-header-count { font-size:11px; font-weight:800; background:rgba(255,255,255,.28); border-radius:12px; padding:1px 8px; flex-shrink:0; min-width:22px; text-align:center; line-height:18px; }
-  .wfb-col-header-btn { background:none; border:none; cursor:pointer; color:rgba(255,255,255,.8); line-height:1; padding:2px 4px; border-radius:4px; transition:background .12s, color .12s; flex-shrink:0; }
-  .wfb-col-header-btn:hover { color:#fff; background:rgba(255,255,255,.2); }
+  .wfb-col-header { display:flex; align-items:center; gap:7px; padding:9px 12px 8px; color:var(--ink-2); background:#fff; border-bottom:1px solid var(--rule); min-height:40px; }
+  .wfb-col-header-title { font-size:12px; font-weight:700; letter-spacing:.01em; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--ink); }
+  .wfb-col-header-count { font-size:11px; font-weight:800; background:var(--canvas); border-radius:12px; padding:1px 8px; flex-shrink:0; min-width:22px; text-align:center; line-height:18px; }
+  .wfb-col-header-btn { background:none; border:none; cursor:pointer; color:var(--ink-4); line-height:1; padding:2px 4px; border-radius:4px; transition:background .12s, color .12s; flex-shrink:0; }
+  .wfb-col-header-btn:hover { color:var(--ink-2); background:var(--canvas); }
 
   /* Column body */
   .wfb-col-body { padding:7px; flex:1; }
@@ -136,12 +212,29 @@
   .wfb-col-collapsed-count { font-size:9px; font-weight:700; background:#E4E9F2; color:var(--ink-3); border-radius:8px; padding:1px 5px; }
 
   /* Toggle button — always white-on-color when inside header */
-  .wfb-col-toggle { background:none; border:none; cursor:pointer; color:rgba(255,255,255,.85); font-size:15px; line-height:1; padding:1px 4px; border-radius:3px; transition:background .1s, color .1s; }
-  .wfb-col-toggle:hover { background:rgba(255,255,255,.2); color:#fff; }
+  .wfb-col-toggle { background:none; border:none; cursor:pointer; color:var(--ink-4); font-size:15px; line-height:1; padding:1px 4px; border-radius:3px; transition:background .1s, color .1s; }
+  .wfb-col-toggle:hover { background:var(--canvas); color:var(--ink-2); }
 
-  /* Empty column */
-  .wfb-col-empty { font-size:10px; color:var(--ink-4); padding:10px 0 8px; text-align:center; }
-  .wfb-col-empty::before { content:''; display:block; width:20px; height:1px; background:var(--rule); margin:0 auto 6px; }
+  /* Empty column — large visible drop zone */
+  .wfb-col-empty {
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    min-height:140px; margin:6px; border-radius:8px;
+    border:1.5px dashed #C8D0DC; background:rgba(241,244,249,.7);
+    color:var(--ink-4); text-align:center; padding:20px 12px;
+    transition:border-color .15s, background .15s;
+    pointer-events:none; /* column itself is the drop target */
+  }
+  .wfb-col-empty svg { opacity:.35; margin-bottom:8px; }
+  .wfb-col-empty .wfb-empty-label { font-size:11px; font-weight:600; color:var(--ink-3); }
+  .wfb-col-empty .wfb-empty-sub { font-size:10px; color:var(--ink-4); margin-top:3px; }
+  /* Drag-over: entire column highlights including the empty zone */
+  .wfb-col.dragover { outline:none; background:#EDF2FF; border-color:var(--accent); }
+  .wfb-col.dragover .wfb-col-empty {
+    border-color:var(--accent); background:rgba(31,94,224,.07);
+    color:var(--accent);
+  }
+  .wfb-col.dragover .wfb-col-empty svg { opacity:.6; }
+  .wfb-col.dragover .wfb-col-empty .wfb-empty-label { color:var(--accent); }
 
   /* ── Status motion cues ─────────────────────────────────────────────────── */
   /* Breathing glow for in-progress jobs: very gentle scale + blue box-shadow. */
@@ -206,8 +299,8 @@
   .wfb-col.is-collapsed .wfb-col-header-count { display: none; }
   .wfb-col-collapse-head { display: flex; flex-direction: column; align-items: center; gap: var(--s2); padding: var(--s2) 0 var(--s1); }
   .wfb-col-collapse-label { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 10px; font-weight: 700; color: var(--ink-2); white-space: nowrap; max-height: 130px; overflow: hidden; text-overflow: ellipsis; margin: 2px 0; }
-  .wfb-col-toggle { background: none; border: none; cursor: pointer; color: rgba(255,255,255,.8); font-size: 13px; line-height: 1; padding: 1px 4px; border-radius: 3px; transition: background .1s, color .1s; }
-  .wfb-col-toggle:hover { background: rgba(255,255,255,.2); color: #fff; }
+  .wfb-col-toggle { background: none; border: none; cursor: pointer; color: var(--ink-4); font-size: 13px; line-height: 1; padding: 1px 4px; border-radius: 3px; transition: background .1s, color .1s; }
+  .wfb-col-toggle:hover { background: var(--canvas); color: var(--ink-2); }
 
   /* Rewards crown chip — drawer use only; board uses .wfb-ft-crown */
   .rw-crown-chip { background: #FEF3C7; color: #92400E; font-size: 9px; padding: 1px 5px; border-radius: var(--r-chip); font-weight: 600; vertical-align: middle; }
@@ -351,13 +444,13 @@
       <div id="locked-mount"></div>
 
       <div id="scheduler-root">
-        <!-- SUMMARY CARDS -->
-        <div id="summary-cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:var(--s3);margin-bottom:var(--s6)"></div>
-
         <!-- MAIN CALENDAR (primary view) + side panels -->
-        <div class="sched2-layout">
+        <div class="sched2-layout wfb-full">
           <div class="card">
-            <!-- Row 1: Nav + view toggles + filters -->
+            <!-- Compact summary strip (filled by JS renderSummary) -->
+            <div id="summary-cards"></div>
+
+            <!-- Row 1: Nav + view toggles + filters + Walk-In -->
             <div class="sb-r1">
               <div class="sb-nav-group">
                 <button class="sb-nav-btn" onclick="window.goPrevious()">‹</button>
@@ -375,35 +468,51 @@
                 <button id="daymode-workflow">Workflow</button>
                 <button id="daymode-calendar">Calendar</button>
               </div>
-              <select class="sb-filter-sel" id="filter-status">
-                <option value="">All Status</option>
-                <option value="estimates_requests">Requests / Estimates</option>
-                <option value="walk_in">Walk-Ins</option>
-                <option value="scheduled">Scheduled</option>
-                <option value="dropped_off">Dropped Off / Checked In</option>
-                <option value="waiting_bay">Assigned / Waiting Bay</option>
-                <option value="in_progress">In Progress</option>
-                <option value="quality_check">Quality Check / Wrap Up</option>
-                <option value="waiting_approval">Waiting Approval</option>
-                <option value="waiting_parts">Waiting Parts</option>
-                <option value="ready_for_pickup">Ready for Pickup</option>
-                <option value="picked_up_closed">Picked Up / Closed</option>
-                <option value="cancelled">Cancelled</option>
-              </select>
-              <select class="sb-filter-sel" id="filter-tech"><option value="">All Techs</option></select>
-              <select class="sb-filter-sel" id="filter-bay"><option value="">All Bays</option></select>
-              <select class="sb-filter-sel" id="filter-type">
-                <option value="">All Types</option>
-                <option value="wait">Wait at shop</option>
-                <option value="drop_off">Drop-off</option>
-              </select>
+              <details class="sb-dd" id="sb-filters-dd">
+                <summary class="sb-dd-btn">Filters<span class="sb-dd-badge" id="sb-filter-count" hidden></span></summary>
+                <div class="sb-dd-panel">
+                  <label class="sb-dd-field">Status
+                    <select id="filter-status">
+                      <option value="">All Status</option>
+                      <option value="estimates_requests">Requests / Estimates</option>
+                      <option value="walk_in">Walk-Ins</option>
+                      <option value="scheduled">Scheduled</option>
+                      <option value="dropped_off">Checked In</option>
+                      <option value="in_progress">In Progress</option>
+                      <option value="quality_check">Quality Check / Wrap Up</option>
+                      <option value="waiting_approval">Waiting Approval</option>
+                      <option value="waiting_parts">Waiting Parts</option>
+                      <option value="ready_for_pickup">Ready for Pickup</option>
+                      <option value="picked_up_closed">Picked Up / Closed</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+                  </label>
+                  <label class="sb-dd-field">Technician
+                    <select id="filter-tech"><option value="">All Techs</option></select>
+                  </label>
+                  <label class="sb-dd-field">Bay
+                    <select id="filter-bay"><option value="">All Bays</option></select>
+                  </label>
+                  <label class="sb-dd-field">Visit type
+                    <select id="filter-type">
+                      <option value="">All Types</option>
+                      <option value="wait">Wait at shop</option>
+                      <option value="drop_off">Drop-off</option>
+                    </select>
+                  </label>
+                  <button class="sb-tool-btn" id="sb-filters-clear" style="width:100%">Clear filters</button>
+                </div>
+              </details>
               <input type="search" class="sb-filter-search" id="filter-search" placeholder="Search jobs…">
+              <div id="walkin-slot"></div>
             </div>
 
-            <!-- Row 2: Board tools (JS) + Walk-In -->
-            <div class="sb-r2">
-              <div id="sb-r2-tools"></div>
-              <div id="walkin-slot"></div>
+            <!-- Board nav: tabs + options, directly above the Kanban columns -->
+            <div class="sb-board-nav">
+              <div class="sb-tabs-strip" id="sb-board-tabs"></div>
+              <div class="sb-opts-strip">
+                <div id="sb-r2-tools"></div>
+              </div>
             </div>
 
             <!-- Board area: bay strip + workflow columns (rendered by JS) -->
@@ -472,7 +581,7 @@
 <script type="module">
   import { db } from './lib/data.js';
   db.init();
-  import('./modules/appointments.js').then((m) => m.renderAppointments());
+  import('./modules/appointments.js?v=24').then((m) => m.renderAppointments());
 </script>
 </body>
 </html>
