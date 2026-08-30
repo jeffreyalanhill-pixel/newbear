@@ -1,0 +1,193 @@
+/* AutoBook — styles/schedule.css
+   Shared, modern workforce-scheduling look for modules/team/schedule.js.
+   Loaded by BOTH team.html and employee-hub.html so the Team page and the
+   Employee Hub render the identical redesigned board (one module, one style).
+   Design reference: clean SaaS scheduling calendar — pastel role-coded shift
+   cards, soft rounded corners, sticky header + employee column, roomy rows.
+   AutoBook branding/colors only. */
+
+/* ── Pastel role/status palette (local to the schedule) ─────────────────── */
+.sched-grid{
+  --sc-blue-bg:#EAF1FF;   --sc-blue-fg:#1E50C8;   --sc-blue-br:#B9CEFB;
+  --sc-green-bg:#E4FBEC;  --sc-green-fg:#15803D;  --sc-green-br:#AEE6C4;
+  --sc-purple-bg:#F0EBFE; --sc-purple-fg:#6D28D9; --sc-purple-br:#CFC0F6;
+  --sc-pink-bg:#FCE9F3;   --sc-pink-fg:#BE185D;   --sc-pink-br:#F3C2DC;
+  --sc-teal-bg:#DEF7F2;   --sc-teal-fg:#0F766E;   --sc-teal-br:#A9E5DC;
+  --sc-amber-bg:#FEF4D8;  --sc-amber-fg:#B45309;  --sc-amber-br:#F3D79A;
+  --sc-rose-bg:#FFE7EA;   --sc-rose-fg:#BE123C;   --sc-rose-br:#F5C2CB;
+  --sc-slate-bg:#F1F5F9;  --sc-slate-fg:#475569;  --sc-slate-br:#DBE3EC;
+}
+
+/* ── Scroll shell + grid skeleton ───────────────────────────────────────── */
+.sched-board{
+  border:1px solid var(--rule); border-radius:var(--r-card);
+  overflow:auto; background:var(--card); box-shadow:var(--shadow-card);
+  max-height:72vh;
+}
+.sched-grid{
+  display:grid;
+  /* wider day columns so the readable 12-hour time ("10:00 AM – 5:00 PM")
+     always fits on one line without truncating */
+  grid-template-columns:238px repeat(5, minmax(200px, 1fr));
+  min-width:1238px;
+  background:var(--rule);           /* shows through as 1px hairlines */
+  gap:1px;
+}
+
+/* Every cell is a white tile; the grid gap becomes the light grid line. Shift
+   cells center their single chip/add/pill vertically so content never sticks to
+   the top-left corner. */
+.sched-cell{ background:var(--card); padding:12px 14px; min-height:98px; position:relative; }
+.sched-cell-shift{ display:flex; flex-direction:column; justify-content:center; }
+
+/* Day header row — sticky to the top on scroll, label + date vertically centered. */
+.sched-cell.head{
+  position:sticky; top:0; z-index:3;
+  min-height:0; padding:12px 14px;
+  display:flex; flex-direction:column; justify-content:center; gap:2px;
+  background:var(--card);
+  font-weight:600; color:var(--ink);
+  text-align:left; letter-spacing:-.01em;
+}
+.sched-cell.head .sched-dow{ color:var(--ink-3); font-weight:700; font-size:13px; text-transform:uppercase; letter-spacing:.04em; }
+.sched-cell.head .sched-dom{ font-family:var(--font-mono,monospace); font-size:19px; font-weight:600; color:var(--ink); }
+.sched-cell.head.sched-today{ box-shadow:inset 0 -3px 0 var(--accent); }
+.sched-cell.head.sched-today .sched-dom{ color:var(--accent); }
+
+/* Left employee column — sticky to the left on horizontal scroll. */
+.sched-cell.name{
+  position:sticky; left:0; z-index:2;
+  background:var(--card);
+  display:flex; align-items:center; gap:13px;
+  min-height:98px;
+}
+/* Top-left corner sits above both sticky axes. */
+.sched-cell.head:first-child{ z-index:4; }
+
+.sched-emp{ display:flex; align-items:center; gap:13px; min-width:0; }
+.sched-emp-av{
+  width:40px; height:40px; border-radius:50%; flex-shrink:0;
+  background:var(--accent-lt); color:var(--accent);
+  display:grid; place-items:center; font-weight:600; font-size:14px;
+  border:1px solid var(--rule); overflow:hidden;
+}
+.sched-emp-meta{ min-width:0; display:flex; flex-direction:column; gap:1px; }
+.sched-emp-name{ font-weight:700; color:var(--ink); font-size:14px; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sched-emp-role{ font-size:12px; color:var(--ink-2); line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sched-emp-hours{ font-family:var(--font-mono,monospace); font-size:12px; color:var(--ink-3); }
+
+/* Open Shifts label cell. */
+.sched-cell.name.sched-open-label{
+  color:var(--sc-amber-fg); font-weight:600; font-size:var(--t-13);
+  align-items:center; gap:8px;
+}
+.sched-open-label .sched-open-dot{ width:8px; height:8px; border-radius:50%; background:var(--amber); box-shadow:0 0 0 3px var(--sc-amber-bg); }
+
+/* ── Shift cards ────────────────────────────────────────────────────────── */
+.sched-cell-shift{ cursor:pointer; transition:background .12s; }
+.sched-cell-shift:hover{ background:#FBFCFE; }
+.sched-cell-shift.sched-locked{ cursor:not-allowed; }
+.sched-cell-shift.drag-over{ outline:2px dashed var(--accent); outline-offset:-3px; background:var(--accent-lt); }
+
+.sched-chip{
+  position:relative;
+  border:1px solid var(--sc-slate-br);
+  background:var(--sc-slate-bg);
+  border-left:3px solid var(--sc-slate-fg);
+  border-radius:11px;
+  padding:12px 14px;
+  cursor:grab;
+  transition:box-shadow .12s, transform .12s;
+}
+.sched-chip + .sched-chip{ margin-top:6px; }
+.sched-chip:hover{ box-shadow:0 4px 12px rgba(15,23,42,.10); transform:translateY(-1px); }
+.sched-chip.dragging{ opacity:.4; }
+.sched-chip-time{ font-weight:700; font-size:14px; color:var(--ink); letter-spacing:-.01em; line-height:1.15; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sched-chip-sub{ font-size:12.5px; color:var(--ink-2); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sched-chip-badges{ display:flex; flex-wrap:wrap; gap:5px; margin-top:9px; }
+.sched-chip .badge{ font-size:11px; font-weight:600; padding:3px 9px; }
+
+/* role/status color variants (bg tint + left rail + border) */
+.sched-chip--blue  { background:var(--sc-blue-bg);   border-color:var(--sc-blue-br);   border-left-color:var(--sc-blue-fg); }
+.sched-chip--green { background:var(--sc-green-bg);  border-color:var(--sc-green-br);  border-left-color:var(--sc-green-fg); }
+.sched-chip--purple{ background:var(--sc-purple-bg); border-color:var(--sc-purple-br); border-left-color:var(--sc-purple-fg); }
+.sched-chip--pink  { background:var(--sc-pink-bg);   border-color:var(--sc-pink-br);   border-left-color:var(--sc-pink-fg); }
+.sched-chip--teal  { background:var(--sc-teal-bg);   border-color:var(--sc-teal-br);   border-left-color:var(--sc-teal-fg); }
+.sched-chip--amber { background:var(--sc-amber-bg);  border-color:var(--sc-amber-br);  border-left-color:var(--sc-amber-fg); }
+.sched-chip--rose  { background:var(--sc-rose-bg);   border-color:var(--sc-rose-br);   border-left-color:var(--sc-rose-fg); }
+
+/* Open-shift card — soft amber, dashed to read as "unfilled". */
+.sched-chip.sched-chip-open{
+  background:var(--sc-amber-bg); border:1px dashed var(--sc-amber-br); border-left:3px solid var(--sc-amber-fg);
+}
+
+/* Warning corner flag on a shift with a conflict / pending request. */
+.sched-chip-warn{
+  position:absolute; top:-6px; right:-6px;
+  width:18px; height:18px; border-radius:50%;
+  background:var(--amber); color:#fff;
+  display:grid; place-items:center; font-size:11px; font-weight:600;
+  border:2px solid var(--card); box-shadow:0 1px 3px rgba(15,23,42,.2);
+}
+.sched-chip-warn.warn-red{ background:var(--red); }
+
+/* PTO / unavailable pill inside a cell (no shift). */
+.sched-inline-pill{
+  display:inline-flex; align-items:center; gap:5px; align-self:center;
+  font-size:12px; font-weight:700; padding:6px 11px; border-radius:9px;
+  background:var(--sc-rose-bg); color:var(--sc-rose-fg); border:1px solid var(--sc-rose-br);
+}
+.sched-inline-pill.pill-gray{ background:var(--sc-slate-bg); color:var(--sc-slate-fg); border-color:var(--sc-slate-br); }
+.sched-inline-pill.pill-amber{ background:var(--sc-amber-bg); color:var(--sc-amber-fg); border-color:var(--sc-amber-br); }
+.sched-inline-pill.pill-green{ background:var(--sc-green-bg); color:var(--sc-green-fg); border-color:var(--sc-green-br); }
+
+/* Empty "add" affordance — a calm, centered dashed box that's shorter than a
+   filled card (so empty cells read as lighter) while the cell keeps its height. */
+.sched-add{
+  display:flex; align-items:center; justify-content:center; gap:6px;
+  align-self:stretch; min-height:44px; border-radius:10px;
+  border:1.5px dashed var(--sc-slate-br); color:var(--ink-3);
+  font-size:12.5px; font-weight:600; transition:all .12s;
+}
+.sched-cell-shift:hover .sched-add{ border-color:var(--accent-mid); color:var(--accent-ink); background:var(--accent-lt); }
+.sched-add-dash{ border-style:dashed; }
+.sched-empty-dot{ color:var(--ink-4); font-size:13px; text-align:center; }
+
+/* conflict tint on the whole cell */
+.sched-cell-shift.sched-conflict{ background:#FFF6F6; }
+
+/* Clip portrait <img> to the round avatar containers used across Team/Hub. */
+.emp-avatar,.hub-avatar,.sched-emp-av{ overflow:hidden; padding:0; }
+
+/* ── Toolbar polish ─────────────────────────────────────────────────────── */
+.sched-toolbar{ display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:var(--s3); }
+.sched-toolbar .seg button.active{ background:var(--card); color:var(--ink); box-shadow:var(--shadow-card); }
+
+/* ── Month lookahead grid (moved here from team.html so both pages match) ── */
+.month-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:var(--r-md);overflow:hidden}
+.month-cell{background:var(--card);padding:6px;min-height:48px;font-size:var(--t-13);cursor:pointer;transition:background .15s}
+.month-cell:hover{background:var(--canvas)}
+.month-cell.head{background:var(--canvas);font-weight:700;text-align:center;cursor:default;min-height:auto;padding:var(--s2)}
+.month-cell.dim{color:var(--ink-4)}
+.month-cell.selected{outline:2px solid var(--accent)}
+.month-daynum{font-weight:600;text-align:center;margin-bottom:2px}
+.month-dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+.month-dot.dot-blue{background:var(--accent)}
+.month-dot.dot-amber{background:var(--amber)}
+.month-dot.dot-green{background:var(--green)}
+.month-dot.dot-red{background:var(--red)}
+
+/* ── Responsive / mobile ────────────────────────────────────────────────── */
+@media (max-width:720px){
+  /* Columns stay wide enough (and the board scrolls) so the 12-hour time never
+     truncates; the card just gets a touch tighter. */
+  .sched-grid{ grid-template-columns:150px repeat(5, minmax(168px,1fr)); min-width:990px; }
+  .sched-cell{ min-height:84px; padding:8px; }
+  .sched-cell.name,.sched-cell.name.sched-open-label{ min-height:84px; }
+  .sched-cell.head{ padding:10px; }
+  .sched-emp-av{ width:32px; height:32px; }
+  .sched-chip{ padding:10px 11px; }
+  .sched-chip-time{ font-size:12.5px; }
+  .sched-chip-sub{ font-size:12px; }
+  .sched-board{ max-height:none; }
+}

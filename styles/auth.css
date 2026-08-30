@@ -3,7 +3,11 @@
    forgot-password, account-setup. Centered card on a soft branded backdrop,
    navy text, blue primary button. No dashboard chrome. */
 
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap');
+
 :root {
+  --font-disp: 'Archivo', system-ui, sans-serif;
+  --font-body: 'Hanken Grotesk', system-ui, sans-serif;
   --au-navy: #111A2E;
   --au-slate: #667083;
   --au-border: #E6E9F1;
@@ -29,7 +33,7 @@ body.auth-body {
   padding: 40px 16px;
 }
 
-.au-brand { display: flex; align-items: center; gap: 9px; font-weight: 800; font-size: 18px; color: var(--au-navy); margin-bottom: 22px; }
+.au-brand { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 18px; color: var(--au-navy); margin-bottom: 22px; }
 .au-brand svg { display: block; }
 
 .au-card {
@@ -43,7 +47,7 @@ body.auth-body {
 }
 .au-card.wide { max-width: 560px; }
 
-.au-h1 { font-size: 27px; font-weight: 800; letter-spacing: -.02em; margin: 0 0 4px; color: var(--au-navy); }
+.au-h1 { font-family: var(--font-disp,'Archivo'), sans-serif; font-size: 26px; font-weight: 600; letter-spacing: -.02em; margin: 0 0 4px; color: var(--au-navy); }
 .au-sub { font-size: 14px; color: var(--au-slate); margin: 0 0 22px; }
 
 /* Google / social button */
