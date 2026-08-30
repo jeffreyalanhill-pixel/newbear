@@ -6,29 +6,33 @@
    shared component. If a style decision arises, default to the reference.
    ============================================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
 
-/* 1. TOKENS ---------------------------------------------------------------- */
+/* 1. TOKENS — Torklio Visual Language (periwinkle reference) ---------------- */
 :root{
-  --ink:#0F172A; --ink-2:#334155; --ink-3:#64748B; --ink-4:#94A3B8;
-  --canvas:#F4F6F9; --card:#FFFFFF; --rule:#E9EDF2; --rail:#FFFFFF;
+  --ink:#111A2E; --ink-2:#3C4557; --ink-3:#667083; --ink-4:#98A1B3;
+  --canvas:#F1F3F8; --card:#FFFFFF; --rule:#E6E9F1; --rail:#FFFFFF;
   --panel:#0E1B30; --panel-2:#16243C; --panel-rule:#24344F; --panel-txt:#AEBED4; --panel-ink:#FFFFFF;
-  --accent:#2563EB; --accent-lt:#E7EEFF; --accent-mid:#BBD0FF; --accent-ink:#1E50C8;
-  --green:#16A34A; --green-lt:#DCFCE7; --amber:#F59E0B; --amber-lt:#FEF3C7;
-  --red:#EF4444; --red-lt:#FEE2E2; --purple:#7C3AED; --purple-lt:#EDE9FE;
-  --r-chip:8px; --r-md:12px; --r-card:18px; --r-panel:22px; --r-full:9999px;
+  --accent:#716BFF; --accent-lt:#EEECFF; --accent-soft:#F6F5FF; --accent-mid:#C9C6FF; --accent-ink:#5B54F6;
+  --green:#0FA958; --green-lt:#E7F6EE; --amber:#C97A06; --amber-lt:#FBF1E1;
+  --red:#DC2626; --red-lt:#FCECEC; --blue:#477DF8; --blue-lt:#EAF1FE;
+  --purple:#716BFF; --purple-lt:#EEECFF;
+  --r-chip:8px; --r-md:10px; --r-card:12px; --r-panel:14px; --r-full:9999px;
   --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:20px; --s6:24px; --s8:32px; --s10:40px;
   --t-xs:11px; --t-sm:12px; --t-13:13px; --t-base:14px; --t-md:16px;
-  --t-lg:18px; --t-xl:22px; --t-2xl:28px; --t-3xl:32px; --t-4xl:40px;
-  --shadow-card:0 1px 2px rgba(16,24,40,.04), 0 4px 16px rgba(16,24,40,.06);
-  --shadow-pop:0 8px 28px rgba(16,24,40,.12), 0 2px 6px rgba(16,24,40,.06);
+  --t-lg:18px; --t-xl:22px; --t-2xl:26px; --t-3xl:28px; --t-4xl:34px;
+  --shadow-card:0 1px 2px rgba(17,26,46,.04);
+  --shadow-pop:0 1px 2px rgba(17,26,46,.05), 0 10px 30px rgba(17,26,46,.10);
+  --font-disp:'Archivo',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-body:'Hanken Grotesk',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono:'Space Mono',ui-monospace,Consolas,monospace;
   --ease:cubic-bezier(.4,0,.2,1); --rail-w:76px; --ctx-w:340px;
 }
 
 /* 2. RESET + BASE ---------------------------------------------------------- */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-text-size-adjust:100%}
-body{font-family:'Inter',system-ui,-apple-system,sans-serif;font-size:var(--t-base);color:var(--ink);
+body{font-family:var(--font-body);font-size:var(--t-base);color:var(--ink);
   background:var(--canvas);line-height:1.5;-webkit-font-smoothing:antialiased}
 a{color:inherit;text-decoration:none}
 button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
@@ -63,7 +67,7 @@ ul,ol{list-style:none} img,svg{display:block;max-width:100%}
 .rail-item-label{opacity:0;font-size:var(--t-base);font-weight:600;transition:opacity .15s var(--ease)}
 .icon-rail:hover .rail-item-label{opacity:1}
 .rail-item:hover{color:var(--ink-2);background:var(--canvas)}
-.rail-item.active{background:var(--accent);color:#fff;box-shadow:0 4px 12px rgba(37,99,235,.35)}
+.rail-item.active{background:var(--accent);color:#fff;box-shadow:0 4px 12px rgba(113,107,255,.30)}
 .rail-item .rail-dot{position:absolute;top:8px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--red);border:2px solid var(--rail)}
 /* Demo-only "view app as" role nav filtering (lib/nav.js) — visual only,
    never blocks navigation; the link still works if clicked/typed directly. */
@@ -94,7 +98,7 @@ ul,ol{list-style:none} img,svg{display:block;max-width:100%}
 /* 4. HEADER PARTS (search = input style reference) ------------------------- */
 .search-pill{display:flex;align-items:center;gap:var(--s2);background:var(--card);border:1px solid var(--rule);
   border-radius:var(--r-full);padding:10px var(--s4);min-width:320px;box-shadow:var(--shadow-card);color:var(--ink-3);transition:border-color .15s,box-shadow .15s}
-.search-pill:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+.search-pill:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(113,107,255,.15)}
 .search-pill svg{width:18px;height:18px;flex-shrink:0}
 .search-pill input{border:none;outline:none;background:none;flex:1;color:var(--ink);font-size:var(--t-base)}
 .search-pill input::placeholder{color:var(--ink-4)}
@@ -120,7 +124,7 @@ ul,ol{list-style:none} img,svg{display:block;max-width:100%}
 .kpi-head{display:flex;align-items:center;gap:var(--s2);margin-bottom:var(--s3)}
 .kpi-bubble{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;flex-shrink:0}
 .kpi-bubble svg{width:15px;height:15px}
-.kpi-bubble.blue{background:rgba(37,99,235,.18);color:#7AA2FF}
+.kpi-bubble.blue{background:rgba(113,107,255,.16);color:#7AA2FF}
 .kpi-bubble.green{background:rgba(22,163,74,.18);color:#5CD98A}
 .kpi-bubble.red{background:rgba(239,68,68,.18);color:#FF8A8A}
 .kpi-label{font-size:var(--t-base);font-weight:600;color:var(--panel-txt)}
@@ -146,7 +150,7 @@ ul,ol{list-style:none} img,svg{display:block;max-width:100%}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--s2);padding:10px var(--s5);
   border-radius:var(--r-md);font-size:var(--t-base);font-weight:700;transition:all .15s var(--ease);white-space:nowrap;line-height:1}
 .btn svg{width:16px;height:16px}
-.btn-primary{background:var(--accent);color:#fff;box-shadow:0 1px 3px rgba(37,99,235,.35)} .btn-primary:hover{background:var(--accent-ink)}
+.btn-primary{background:var(--accent);color:#fff;box-shadow:0 1px 3px rgba(113,107,255,.30)} .btn-primary:hover{background:var(--accent-ink)}
 .btn-secondary{background:var(--card);color:var(--ink-2);border:1px solid var(--rule);box-shadow:var(--shadow-card)} .btn-secondary:hover{background:var(--canvas);color:var(--ink)}
 .btn-ghost{color:var(--ink-3)} .btn-ghost:hover{color:var(--ink);background:var(--canvas)}
 .btn-danger{background:var(--red-lt);color:var(--red)} .btn-danger:hover{background:var(--red);color:#fff}
@@ -177,7 +181,7 @@ ul,ol{list-style:none} img,svg{display:block;max-width:100%}
 .field{display:flex;flex-direction:column;gap:6px}
 .label{font-size:var(--t-sm);font-weight:600;color:var(--ink-2)}
 .input,.select,.textarea{width:100%;padding:10px var(--s3);border:1px solid var(--rule);border-radius:var(--r-md);background:var(--card);color:var(--ink);font-size:var(--t-base);outline:none;transition:border-color .15s,box-shadow .15s}
-.input:focus,.select:focus,.textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+.input:focus,.select:focus,.textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(113,107,255,.15)}
 .input::placeholder,.textarea::placeholder{color:var(--ink-4)}
 .select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%2364748B' stroke-width='2'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:34px}
 .textarea{resize:vertical;min-height:84px}
@@ -189,14 +193,14 @@ ul,ol{list-style:none} img,svg{display:block;max-width:100%}
 .toggle.on::after{transform:translateX(18px)}
 
 /* 10. KANBAN --------------------------------------------------------------- */
-.kanban{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s4)}
+.kanban{display:grid;grid-template-columns:repeat(3,minmax(250px,1fr));gap:var(--s4);overflow-x:auto}
 .kan-col{background:var(--canvas);border:1px solid var(--rule);border-radius:var(--r-md);display:flex;flex-direction:column}
 .kan-col-head{display:flex;align-items:center;gap:var(--s2);padding:var(--s3) var(--s4);font-size:var(--t-sm);font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3)}
 .kan-cards{padding:var(--s3);display:flex;flex-direction:column;gap:var(--s2);min-height:80px}
 .kan-card{background:var(--card);border:1px solid var(--rule);border-radius:var(--r-md);padding:var(--s3);box-shadow:var(--shadow-card);cursor:grab;transition:box-shadow .15s,transform .15s}
 .kan-card:hover{box-shadow:var(--shadow-pop);transform:translateY(-1px)} .kan-card.dragging{opacity:.5}
 .kan-top{display:flex;align-items:center;gap:var(--s2);margin-bottom:var(--s2)}
-.kan-name{font-weight:700;color:var(--ink);font-size:var(--t-base)} .kan-sub{font-size:var(--t-13);color:var(--ink-3)}
+.kan-name{font-weight:700;color:var(--ink);font-size:var(--t-base);flex:1;min-width:0;line-height:1.3} .kan-sub{font-size:var(--t-13);color:var(--ink-3)}
 .kan-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:var(--s2)}
 
 /* 11. FLAG ROWS ------------------------------------------------------------ */

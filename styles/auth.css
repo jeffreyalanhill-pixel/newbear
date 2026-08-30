@@ -1,0 +1,123 @@
+/* Torklio — styles/auth.css
+   Shared styling for the owner/admin auth screens: login, signup,
+   forgot-password, account-setup. Centered card on a soft branded backdrop,
+   navy text, blue primary button. No dashboard chrome. */
+
+:root {
+  --au-navy: #111A2E;
+  --au-slate: #667083;
+  --au-border: #E6E9F1;
+  --au-blue: #716BFF;
+  --au-blue-deep: #5B54F6;
+  --au-bg: #F1F3F8;
+}
+
+* { box-sizing: border-box; }
+html, body { height: auto; overflow-x: hidden; }
+body.auth-body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 500px at 15% -10%, rgba(113,107,255,.16), transparent 60%),
+    radial-gradient(900px 500px at 110% 10%, rgba(14,35,86,.20), transparent 55%),
+    linear-gradient(180deg, #f6f8fc, #eaf0fb);
+  color: var(--au-navy);
+  font-family: var(--font-body, 'Hanken Grotesk'), system-ui, -apple-system, sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 16px;
+}
+
+.au-brand { display: flex; align-items: center; gap: 9px; font-weight: 800; font-size: 18px; color: var(--au-navy); margin-bottom: 22px; }
+.au-brand svg { display: block; }
+
+.au-card {
+  width: 100%;
+  max-width: 460px;
+  background: #fff;
+  border: 1px solid var(--au-border);
+  border-radius: 20px;
+  box-shadow: 0 1px 3px rgba(15,23,42,.05), 0 24px 60px rgba(15,23,42,.12);
+  padding: 32px;
+}
+.au-card.wide { max-width: 560px; }
+
+.au-h1 { font-size: 27px; font-weight: 800; letter-spacing: -.02em; margin: 0 0 4px; color: var(--au-navy); }
+.au-sub { font-size: 14px; color: var(--au-slate); margin: 0 0 22px; }
+
+/* Google / social button */
+.au-google {
+  width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;
+  height: 46px; border: 1px solid var(--au-border); border-radius: 11px; background: #fff;
+  font-size: 14px; font-weight: 600; color: var(--au-navy); cursor: pointer; transition: background .12s, border-color .12s;
+}
+.au-google:hover { background: #f8fafc; border-color: #cbd5e1; }
+.au-google svg { width: 18px; height: 18px; }
+
+/* Divider */
+.au-divider { display: flex; align-items: center; gap: 12px; margin: 20px 0; color: var(--au-slate); font-size: 12px; }
+.au-divider::before, .au-divider::after { content: ''; flex: 1; height: 1px; background: var(--au-border); }
+
+/* Fields */
+.au-field { margin-bottom: 15px; }
+.au-field label { display: block; font-size: 12.5px; font-weight: 600; color: #334155; margin-bottom: 6px; }
+.au-field input, .au-field select {
+  width: 100%; height: 46px; border: 1px solid var(--au-border); border-radius: 11px; padding: 0 14px;
+  font-size: 14.5px; font-family: inherit; color: var(--au-navy); outline: none; background: #fff;
+  transition: border-color .12s, box-shadow .12s;
+}
+.au-field input:focus, .au-field select:focus { border-color: var(--au-blue); box-shadow: 0 0 0 3px rgba(113,107,255,.12); }
+.au-field input.invalid { border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220,38,38,.08); }
+.au-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+@media (max-width: 480px) { .au-grid2 { grid-template-columns: 1fr; } }
+
+/* Row: keep signed in + forgot */
+.au-row { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 20px; }
+.au-check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #334155; cursor: pointer; user-select: none; }
+.au-check input { width: 16px; height: 16px; accent-color: var(--au-blue); cursor: pointer; }
+.au-link { color: var(--au-blue); font-size: 13px; font-weight: 600; text-decoration: none; }
+.au-link:hover { text-decoration: underline; }
+
+/* Terms line */
+.au-terms { display: flex; align-items: flex-start; gap: 9px; font-size: 12.5px; color: var(--au-slate); margin: 6px 0 18px; line-height: 1.45; }
+.au-terms input { width: 16px; height: 16px; margin-top: 1px; accent-color: var(--au-blue); flex-shrink: 0; cursor: pointer; }
+.au-terms a { color: var(--au-blue); text-decoration: none; }
+
+/* Primary button */
+.au-btn {
+  width: 100%; height: 48px; border: none; border-radius: 11px; cursor: pointer;
+  background: var(--au-blue); color: #fff; font-size: 15px; font-weight: 700; font-family: inherit;
+  transition: opacity .12s, transform .05s; display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+}
+.au-btn:hover { opacity: .93; }
+.au-btn:active { transform: translateY(1px); }
+.au-btn:disabled { opacity: .6; cursor: not-allowed; }
+.au-btn.ghost { background: #fff; color: var(--au-navy); border: 1px solid var(--au-border); }
+.au-spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: au-spin .7s linear infinite; }
+@keyframes au-spin { to { transform: rotate(360deg); } }
+
+/* Messages */
+.au-error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; font-size: 13px; font-weight: 500; border-radius: 10px; padding: 10px 12px; margin-bottom: 16px; display: none; }
+.au-error.show { display: block; }
+.au-ok { background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; font-size: 13px; font-weight: 500; border-radius: 10px; padding: 10px 12px; margin-bottom: 16px; display: none; }
+.au-ok.show { display: block; }
+
+/* Footer link */
+.au-foot { text-align: center; font-size: 13.5px; color: var(--au-slate); margin-top: 20px; }
+.au-foot a { color: var(--au-blue); font-weight: 600; text-decoration: none; }
+.au-foot a:hover { text-decoration: underline; }
+
+/* Onboarding stepper */
+.au-steps { display: flex; gap: 6px; margin-bottom: 22px; }
+.au-step { flex: 1; height: 4px; background: var(--au-border); border-radius: 2px; }
+.au-step.on { background: linear-gradient(90deg, var(--au-blue), #7c3aed); }
+.au-section-label { font-size: 11px; font-weight: 700; color: var(--au-slate); text-transform: uppercase; letter-spacing: .05em; margin: 18px 0 10px; }
+.au-hours-row { display: grid; grid-template-columns: 92px 1fr 1fr auto; gap: 8px; align-items: center; margin-bottom: 6px; font-size: 13px; }
+.au-hours-row input[type="time"] { height: 38px; }
+.au-svc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+@media (max-width: 480px) { .au-svc-grid { grid-template-columns: 1fr; } }
+.au-svc { display: flex; align-items: center; gap: 8px; border: 1px solid var(--au-border); border-radius: 10px; padding: 9px 11px; font-size: 13px; cursor: pointer; }
+.au-svc.sel { border-color: var(--au-blue); background: #f8faff; }
+.au-svc input { accent-color: var(--au-blue); }
+.au-btn-row { display: flex; gap: 10px; margin-top: 20px; }
