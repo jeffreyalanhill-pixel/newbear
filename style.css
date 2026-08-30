@@ -11,7 +11,7 @@
 /* 1. TOKENS — Torklio Visual Language (periwinkle reference) ---------------- */
 :root{
   --ink:#111A2E; --ink-2:#3C4557; --ink-3:#667083; --ink-4:#98A1B3;
-  --canvas:#F1F3F8; --card:#FFFFFF; --rule:#E6E9F1; --rail:#FFFFFF;
+  --canvas:#F1F3F8; --card:#FFFFFF; --rule:#E6E9F1; --line-strong:#D8DBE8; --rail:#FFFFFF;
   --panel:#0E1B30; --panel-2:#16243C; --panel-rule:#24344F; --panel-txt:#AEBED4; --panel-ink:#FFFFFF;
   --accent:#716BFF; --accent-lt:#EEECFF; --accent-soft:#F6F5FF; --accent-mid:#C9C6FF; --accent-ink:#5B54F6;
   --green:#0FA958; --green-lt:#E7F6EE; --amber:#C97A06; --amber-lt:#FBF1E1;
@@ -61,13 +61,13 @@ ul,ol{list-style:none} img,svg{display:block;max-width:100%}
 .rail-logo .rail-shop-name{opacity:0;white-space:nowrap;font-weight:600;color:var(--ink);font-size:var(--t-base);transition:opacity .15s var(--ease)}
 .icon-rail:hover .rail-logo .rail-shop-name{opacity:1}
 .rail-sep{height:1px;background:var(--rule);margin:var(--s2) 12px;flex-shrink:0}
-.rail-item{height:48px;border-radius:14px;display:flex;align-items:center;gap:var(--s3);padding:0 13px;
+.rail-item{height:46px;border-radius:var(--r-md);display:flex;align-items:center;gap:var(--s3);padding:0 13px;
   color:var(--ink-4);transition:all .15s var(--ease);position:relative;flex-shrink:0;white-space:nowrap;overflow:hidden}
 .rail-item svg{width:22px;height:22px;flex-shrink:0}
-.rail-item-label{opacity:0;font-size:var(--t-base);font-weight:600;transition:opacity .15s var(--ease)}
+.rail-item-label{opacity:0;font-size:var(--t-base);font-weight:500;transition:opacity .15s var(--ease)}
 .icon-rail:hover .rail-item-label{opacity:1}
 .rail-item:hover{color:var(--ink-2);background:var(--canvas)}
-.rail-item.active{background:var(--accent);color:#fff;box-shadow:0 4px 12px rgba(113,107,255,.30)}
+.rail-item.active{background:var(--accent-lt);color:var(--accent-ink)}
 .rail-item .rail-dot{position:absolute;top:8px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--red);border:2px solid var(--rail)}
 /* Demo-only "view app as" role nav filtering (lib/nav.js) — visual only,
    never blocks navigation; the link still works if clicked/typed directly. */
@@ -97,13 +97,13 @@ ul,ol{list-style:none} img,svg{display:block;max-width:100%}
 
 /* 4. HEADER PARTS (search = input style reference) ------------------------- */
 .search-pill{display:flex;align-items:center;gap:var(--s2);background:var(--card);border:1px solid var(--rule);
-  border-radius:var(--r-full);padding:10px var(--s4);min-width:320px;box-shadow:var(--shadow-card);color:var(--ink-3);transition:border-color .15s,box-shadow .15s}
+  border-radius:var(--r-md);padding:9px var(--s4);min-width:320px;color:var(--ink-3);transition:border-color .15s,box-shadow .15s}
 .search-pill:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(113,107,255,.15)}
 .search-pill svg{width:18px;height:18px;flex-shrink:0}
 .search-pill input{border:none;outline:none;background:none;flex:1;color:var(--ink);font-size:var(--t-base)}
 .search-pill input::placeholder{color:var(--ink-4)}
-.icon-btn{width:44px;height:44px;border-radius:50%;background:var(--card);border:1px solid var(--rule);display:grid;
-  place-items:center;color:var(--ink-2);box-shadow:var(--shadow-card);position:relative;transition:all .15s}
+.icon-btn{width:40px;height:40px;border-radius:var(--r-md);background:var(--card);border:1px solid var(--rule);display:grid;
+  place-items:center;color:var(--ink-2);position:relative;transition:all .15s}
 .icon-btn:hover{color:var(--ink);background:var(--canvas)} .icon-btn svg{width:20px;height:20px}
 .icon-btn .badge-count{position:absolute;top:-2px;right:-2px;min-width:18px;height:18px;padding:0 4px;background:var(--red);
   color:#fff;border-radius:var(--r-full);font-size:10px;font-weight:700;display:grid;place-items:center;border:2px solid var(--canvas)}
@@ -148,18 +148,18 @@ ul,ol{list-style:none} img,svg{display:block;max-width:100%}
 
 /* 6. BUTTONS --------------------------------------------------------------- */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--s2);padding:10px var(--s5);
-  border-radius:var(--r-md);font-size:var(--t-base);font-weight:700;transition:all .15s var(--ease);white-space:nowrap;line-height:1}
+  border-radius:var(--r-md);font-size:var(--t-base);font-weight:600;transition:all .15s var(--ease);white-space:nowrap;line-height:1}
 .btn svg{width:16px;height:16px}
-.btn-primary{background:var(--accent);color:#fff;box-shadow:0 1px 3px rgba(113,107,255,.30)} .btn-primary:hover{background:var(--accent-ink)}
-.btn-secondary{background:var(--card);color:var(--ink-2);border:1px solid var(--rule);box-shadow:var(--shadow-card)} .btn-secondary:hover{background:var(--canvas);color:var(--ink)}
-.btn-ghost{color:var(--ink-3)} .btn-ghost:hover{color:var(--ink);background:var(--canvas)}
-.btn-danger{background:var(--red-lt);color:var(--red)} .btn-danger:hover{background:var(--red);color:#fff}
+.btn-primary{background:var(--accent);color:#fff} .btn-primary:hover{background:var(--accent-ink)}
+.btn-secondary{background:var(--card);color:var(--ink);border:1px solid var(--line-strong,#D8DBE8)} .btn-secondary:hover{background:var(--canvas);color:var(--ink)}
+.btn-ghost{color:var(--accent-ink)} .btn-ghost:hover{background:var(--accent-soft)}
+.btn-danger{background:var(--card);color:var(--red);border:1px solid var(--red)} .btn-danger:hover{background:var(--red-lt)}
 .btn-sm{padding:6px var(--s3);font-size:var(--t-13);border-radius:var(--r-chip)}
 .btn:disabled{opacity:.5;cursor:not-allowed}
 .seg{display:inline-flex;gap:2px;background:var(--canvas);border:1px solid var(--rule);border-radius:var(--r-md);padding:3px}
 .card.navy .seg{background:var(--panel-2);border-color:var(--panel-rule)}
 .seg button{padding:7px var(--s4);border-radius:var(--r-chip);font-size:var(--t-13);font-weight:600;color:var(--ink-3);transition:all .15s}
-.card.navy .seg button{color:var(--panel-txt)} .seg button.active{background:var(--accent);color:#fff}
+.card.navy .seg button{color:var(--panel-txt)} .seg button.active{background:var(--accent-lt);color:var(--accent-ink)}
 
 /* 7. BADGES + dots --------------------------------------------------------- */
 .badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:var(--r-chip);font-size:var(--t-sm);font-weight:600;letter-spacing:.01em;white-space:nowrap}
