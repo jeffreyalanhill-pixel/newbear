@@ -162,10 +162,14 @@ ul,ol{list-style:none} img,svg{display:block;max-width:100%}
 .card.navy .seg button{color:var(--panel-txt)} .seg button.active{background:var(--accent-lt);color:var(--accent-ink)}
 
 /* 7. BADGES + dots --------------------------------------------------------- */
-.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:var(--r-chip);font-size:var(--t-sm);font-weight:600;letter-spacing:.01em;white-space:nowrap}
-.badge-blue{background:var(--accent-lt);color:var(--accent)} .badge-green{background:var(--green-lt);color:var(--green)}
+/* Status pills — reference recipe: fully round, soft tint, dot + word (never color alone).
+   Colored variants get the dot via ::before; gray stays dotless (it also serves as a neutral meta label). */
+.badge{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:var(--r-full);font-size:var(--t-sm);font-weight:500;letter-spacing:.01em;white-space:nowrap;line-height:1.5}
+.badge-blue::before,.badge-green::before,.badge-amber::before,.badge-red::before,.badge-purple::before{
+  content:'';width:7px;height:7px;border-radius:var(--r-full);background:currentColor;flex-shrink:0}
+.badge-blue{background:var(--blue-lt);color:var(--blue)} .badge-green{background:var(--green-lt);color:var(--green)}
 .badge-amber{background:var(--amber-lt);color:var(--amber)} .badge-red{background:var(--red-lt);color:var(--red)}
-.badge-purple{background:var(--purple-lt);color:var(--purple)} .badge-gray{background:var(--canvas);color:var(--ink-3);border:1px solid var(--rule)}
+.badge-purple{background:var(--purple-lt);color:var(--accent-ink)} .badge-gray{background:var(--canvas);color:var(--ink-3);border:1px solid var(--rule)}
 .dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0}
 .dot-green{background:var(--green)} .dot-blue{background:var(--accent)} .dot-amber{background:var(--amber)} .dot-red{background:var(--red)} .dot-purple{background:var(--purple)}
 .make-badge{width:34px;height:34px;border-radius:50%;background:var(--card);border:1px solid var(--rule);display:grid;place-items:center;font-size:var(--t-13);font-weight:600;flex-shrink:0;overflow:hidden}
